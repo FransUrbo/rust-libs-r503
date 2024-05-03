@@ -3,21 +3,19 @@
 
 use defmt::{debug, info, error};
 
-use embassy_rp::{bind_interrupts, into_ref, Peripheral};
-use embassy_rp::peripherals::{UART0, DMA_CH0, DMA_CH1};
+use embassy_rp::{into_ref, Peripheral};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1};
 use embassy_rp::gpio::{AnyPin, Input, Pull, Level}; // For the wakeup.
 use embassy_rp::uart::{
-    Async, Config, InterruptHandler, Uart, UartTx, UartRx,
-    DataBits, Parity, StopBits, TxPin, RxPin
+    Async, Config, Instance, InterruptHandler,
+    Uart, UartTx, UartRx, DataBits, Parity,
+    StopBits, TxPin, RxPin
 };
+use embassy_rp::interrupt::typelevel::Binding;
 use embassy_time::{with_timeout, Duration, Timer};
 
 use heapless::Vec;
 use core::mem::transmute;
-
-bind_interrupts!(pub struct Irqs {
-    UART0_IRQ  => InterruptHandler<UART0>;
-});
 
 // =====
 
@@ -153,9 +151,10 @@ pub enum AuroraLEDSpeed {
 
 // =====
 
-pub struct R503<'l> {
-    tx:			UartTx<'l, UART0, Async>,
-    rx:			UartRx<'l, UART0, Async>,
+// T => UART0/UART1
+pub struct R503<'l, T: Instance> {
+    tx:			UartTx<'l, T, Async>,
+    rx:			UartRx<'l, T, Async>,
     wakeup:		Input<'l>,
 
     pub address:	u32,
@@ -165,17 +164,19 @@ pub struct R503<'l> {
 }
 
 // NOTE: Pins must be consecutive, otherwise it'll segfault!
-impl<'l> R503<'l> {
+impl<'l, T: Instance> R503<'l, T> {
     pub fn new(
-	uart:			impl Peripheral<P = UART0> + 'l,
-	pin_send:		impl TxPin<UART0>,
+	uart:			impl Peripheral<P = T> + 'l,
+	irqs:			impl Binding<<T as embassy_rp::uart::Instance>::Interrupt, InterruptHandler<T>>,
+	pin_send:		impl TxPin<T>,
 	pin_send_dma:		impl Peripheral<P = DMA_CH0> + 'l,
-	pin_receive:		impl RxPin<UART0>,
+	pin_receive:		impl RxPin<T>,
 	pin_receive_dma:	impl Peripheral<P = DMA_CH1> + 'l,
 	pin_wakeup:		AnyPin
     ) -> Self {
 	into_ref!(pin_send_dma);
 
+	// Set default passwords.
 	let address  = 0xFFFFFFFF;
 	let password = 0x00000000;
 
@@ -187,7 +188,7 @@ impl<'l> R503<'l> {
 	config.parity = Parity::ParityNone;
 
 	// Initialize the fingerprint scanner.
-	let uart = Uart::new(uart, pin_send, pin_receive, Irqs, pin_send_dma, pin_receive_dma, config);
+	let uart = Uart::new(uart, pin_send, pin_receive, irqs, pin_send_dma, pin_receive_dma, config);
 	let (tx, rx) = uart.split();
 
 	// Initialize the WAKEUP pin.
