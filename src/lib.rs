@@ -4,7 +4,6 @@
 use defmt::{debug, info, error};
 
 use embassy_rp::{into_ref, Peripheral};
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1};
 use embassy_rp::gpio::{AnyPin, Input, Pull, Level}; // For the wakeup.
 use embassy_rp::uart::{
     Async, Config, Instance, InterruptHandler,
@@ -12,6 +11,7 @@ use embassy_rp::uart::{
     StopBits, TxPin, RxPin
 };
 use embassy_rp::interrupt::typelevel::Binding;
+use embassy_rp::dma::Channel;
 use embassy_time::{with_timeout, Duration, Timer};
 
 use heapless::Vec;
@@ -164,14 +164,15 @@ pub struct R503<'l, T: Instance> {
 }
 
 // NOTE: Pins must be consecutive, otherwise it'll segfault!
+// Channel => DMA_CH0/DMA_CH1
 impl<'l, T: Instance> R503<'l, T> {
     pub fn new(
 	uart:			impl Peripheral<P = T> + 'l,
 	irqs:			impl Binding<<T as embassy_rp::uart::Instance>::Interrupt, InterruptHandler<T>>,
 	pin_send:		impl TxPin<T>,
-	pin_send_dma:		impl Peripheral<P = DMA_CH0> + 'l,
+	pin_send_dma:		impl Peripheral<P = impl Channel> + 'l,
 	pin_receive:		impl RxPin<T>,
-	pin_receive_dma:	impl Peripheral<P = DMA_CH1> + 'l,
+	pin_receive_dma:	impl Peripheral<P = impl Channel> + 'l,
 	pin_wakeup:		AnyPin
     ) -> Self {
 	into_ref!(pin_send_dma);
