@@ -1881,54 +1881,62 @@ impl<'l, T: Instance> R503<'l, T> {
     }
 
     pub async fn Wrapper_Get_Fingerprint(&mut self, store: u8) -> bool {
-	info!("Place the finger on the scanner.");
-	if DISABLE_RW {
-	    Timer::after_millis(250).await; // Give it quarter of a sec for debug output to catch up.
-	} else {
-	    if self.wakeup.get_level() == Level::High {
-		self.wakeup.wait_for_low().await;
+	// =====
+	// Sometimes this scanner is a bit .. "sensitive". If you don't place your finger EXACTLY
+	// right, it returns "no finger on sensor" (`ErrorNoFingerOnSensor`)!
+	// So do this five times, with increasing delay, THEN fail.
+	let mut attempt = 1;
+	loop {
+	    self.Wrapper_AuraSet_BlinkinBlueMedium().await;
+
+	    info!("Place the finger on the scanner.");
+	    if DISABLE_RW {
+		Timer::after_millis(250).await; // Give it quarter of a sec for debug output to catch up.
 	    } else {
-		self.wakeup.wait_for_high().await;
-	    }
-	}
-	debug!("  Finger detected");
-
-	// Scan the finger.
-	match self.GenImg().await {
-	    Status::CmdExecComplete => {
-		info!("Successfully got image.");
-
-		self.Wrapper_AuraSet_SteadyBlue().await;
-		info!("Remove the finger from the scanner.");
-		if DISABLE_RW {
-		    Timer::after_millis(250).await; // Give it quarter of a sec for debug output to catch up.
+		if self.wakeup.get_level() == Level::High {
+		    self.wakeup.wait_for_low().await;
 		} else {
-		    if self.wakeup.get_level() == Level::High {
-			self.wakeup.wait_for_low().await;
+		    self.wakeup.wait_for_high().await;
+		}
+	    }
+	    debug!("  Finger detected");
+
+	    // Scan the finger.
+	    match self.GenImg().await {
+		Status::CmdExecComplete => {
+		    info!("Successfully got image.");
+
+		    self.Wrapper_AuraSet_SteadyBlue().await;
+		    break;
+		}
+		Status::ErrorReceivePackage => {
+		    error!("Package receive");
+
+		    self.Wrapper_AuraSet_BlinkinRedMedium().await;
+		    return true;
+		}
+		Status::ErrorNoFingerOnSensor => {
+		    if attempt >= 5 {
+			error!("No finger on sensor");
+			return true;
 		    } else {
-			self.wakeup.wait_for_high().await;
+			info!("No finger on sensor - retrying in {:?} seconds. Attempt: {:?}/5", 5 * attempt, attempt);
+
+			self.Wrapper_AuraSet_BlinkinRedSlow().await;
+			Timer::after_secs(5 * attempt).await;
+
+			attempt = attempt + 1;
 		    }
 		}
-		debug!("  Finger removed");
-	    }
-	    Status::ErrorReceivePackage => {
-		error!("Package receive");
+		Status::ErrorEnroleFinger => {
+		    error!("Failed to enrole finger");
+		}
+		stat => {
+		    error!("Unknown return code='{=u8:#04x}'", stat as u8);
 
-		self.Wrapper_AuraSet_BlinkinRedMedium().await;
-		return true;
-	    }
-	    Status::ErrorNoFingerOnSensor => {
-		error!("No finger on sensor");
-		return true;
-	    }
-	    Status::ErrorEnroleFinger => {
-		error!("Failed to enrole finger");
-	    }
-	    stat => {
-		error!("Unknown return code='{=u8:#04x}'", stat as u8);
-
-		self.Wrapper_AuraSet_Off().await;
-		return true;
+		    self.Wrapper_AuraSet_Off().await;
+		    return true;
+		}
 	    }
 	}
 
@@ -1956,7 +1964,7 @@ impl<'l, T: Instance> R503<'l, T> {
 		return true;
 	    }
 	    Status::ErrorMissingValidPrimaryImage => {
-		error!("Failed to generate image because of lac of valid primary image9");
+		error!("Failed to generate image because of lac of valid primary image");
 
 		self.Wrapper_AuraSet_BlinkinRedMedium().await;
 		return true;
@@ -2096,8 +2104,6 @@ impl<'l, T: Instance> R503<'l, T> {
 	    } else {
 		// =====
 		// 2) Get the fingerprint - #1.
-		self.Wrapper_AuraSet_BlinkinBlueMedium().await;
-
 		if self.Wrapper_Get_Fingerprint(1).await {
 		    error!("Couldn't scan the finger");
 
