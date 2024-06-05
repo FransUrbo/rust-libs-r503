@@ -23,26 +23,26 @@ heapless = "0.8.0"
 # They haven't released the `embassy_time::with_deadline` yet, so need to use the GIT version.
 [dependencies.embassy-embedded-hal]
 git = "https://github.com/embassy-rs/embassy.git"
-rev = "511bee7"
+rev = "5af0fe8"
 features = ["defmt"]
 
 [dependencies.embassy-executor]
 git = "https://github.com/embassy-rs/embassy.git"
-rev = "511bee7"
+rev = "5af0fe8"
 features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"]
 
 [dependencies.embassy-time-driver]
 git = "https://github.com/embassy-rs/embassy.git"
-rev = "511bee7"
+rev = "5af0fe8"
 
 [dependencies.embassy-time]
 git = "https://github.com/embassy-rs/embassy.git"
-rev = "511bee7"
+rev = "5af0fe8"
 features = ["defmt", "defmt-timestamp-uptime"]
 
 [dependencies.embassy-rp]
 git = "https://github.com/embassy-rs/embassy.git"
-rev = "511bee7"
+rev = "5af0fe8"
 features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl"]
 
 [profile.release]
