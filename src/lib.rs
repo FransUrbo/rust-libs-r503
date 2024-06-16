@@ -1,7 +1,7 @@
 #![no_std]
 #![allow(non_snake_case)]	// I want to keep with the manufacturers naming scheme.
 
-use defmt::{debug, info, error};
+use defmt::{debug, info, error, trace};
 
 use embassy_rp::{into_ref, Peripheral};
 use embassy_rp::gpio::{AnyPin, Input, Pull, Level}; // For the wakeup.
@@ -229,7 +229,7 @@ impl<'l, T: Instance> R503<'l, T> {
     //				contens. Overflowing bits are omitted. high byte is transferred first.
 
     async fn write(&mut self) -> u8 {
-	info!("write='{:?}'", self.buffer[..]);
+	debug!("write='{:?}'", self.buffer[..]);
 	let _ = self.debug_vec(&self.buffer, true).await;
 
 	if DISABLE_RW {
@@ -269,7 +269,7 @@ impl<'l, T: Instance> R503<'l, T> {
 	    match with_timeout(Duration::from_millis(timeout), self.rx.read(&mut buf)).await {
 		Ok(..) => {
 		    // Extract and save read byte.
-		    debug!("  r({:03})='{=u8:#04x}H' ({:03}D)", cnt, buf[0], buf[0]);
+		    trace!("  r({:03})='{=u8:#04x}H' ({:03}D)", cnt, buf[0], buf[0]);
 		    let _ = data.push(buf[0]).unwrap();
 		}
 		Err(..) => break // TimeoutError -> Ignore.
@@ -277,12 +277,13 @@ impl<'l, T: Instance> R503<'l, T> {
 
 	    cnt = cnt + 1;
 	}
-	info!("read='{:?}'", data[..]);
+	debug!("read='{:?}'", data[..]);
 
 	if data.len() < 1 {
 	    error!("Empty response - no data");
 	    return data; // Fake a success.
 	}
+	info!("Read successful.");
 
 	// Save the response.
 	self.received = data.clone();
@@ -419,7 +420,7 @@ impl<'l, T: Instance> R503<'l, T> {
 
 	for x in buf {
 	    if out {
-		debug!("  x({:03})='{=u8:#04x}H' ({:03}D)", i, x, x);
+		trace!("  x({:03})='{=u8:#04x}H' ({:03}D)", i, x, x);
 	    }
 	    a[i] = *x;
 	    i = i + 1;
@@ -1857,7 +1858,7 @@ impl<'l, T: Instance> R503<'l, T> {
 
 	match self.ReadSysPara().await {
 	    Status::CmdExecComplete => {
-		info!("System parameters");
+		info!("System parameters read");
 	    }
 	    Status::ErrorReceivePackage => {
 		error!("Package receive");
@@ -2110,7 +2111,6 @@ impl<'l, T: Instance> R503<'l, T> {
 
 		    // =====
 		    // 3) Search for the fingerprint
-		    info!("Searching for the fingerprint");
 		    match self.Search(1, 0, 0xffff).await {
 			Status::CmdExecComplete => {
 			    info!("Fingerprint fount.");
