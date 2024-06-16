@@ -7,8 +7,7 @@ use embassy_rp::{into_ref, Peripheral};
 use embassy_rp::gpio::{AnyPin, Input, Pull, Level}; // For the wakeup.
 use embassy_rp::uart::{
     Async, Config, Instance, InterruptHandler,
-    Uart, UartTx, UartRx, DataBits, Parity,
-    StopBits, TxPin, RxPin
+    Uart, UartTx, UartRx, TxPin, RxPin
 };
 use embassy_rp::interrupt::typelevel::Binding;
 use embassy_rp::dma::Channel;
@@ -182,11 +181,8 @@ impl<'l, T: Instance> R503<'l, T> {
 	let password = 0x00000000;
 
 	// Configure the communication protocol etc.
-	let mut config = Config::default();
-	config.baudrate = 57600; //115200;
-	config.stop_bits = StopBits::STOP1;
-	config.data_bits = DataBits::DataBits8;
-	config.parity = Parity::ParityNone;
+	let mut config = Config::default(); // => 115200/8N1
+	config.baudrate = 57600;
 
 	// Initialize the fingerprint scanner.
 	let uart = Uart::new(uart, pin_send, pin_receive, irqs, pin_send_dma, pin_receive_dma, config);
