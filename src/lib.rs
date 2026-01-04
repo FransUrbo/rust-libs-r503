@@ -238,13 +238,15 @@ impl<'l> R503<'l> {
         let _ = self.debug_vec(&self.buffer, true).await;
 
         if DISABLE_RW {
-            Timer::after_millis(250).await; // Give it quarter of a sec for debug output to catch up.
+            // Give it quarter of a sec for debug output to catch up.
+            trace!("  Write disabled by `DISABLE_RW`");
+            Timer::after_millis(250).await;
             return Status::CmdExecComplete as u8; // Fake a success.
         }
 
         match self.tx.write(&self.buffer).await {
             Ok(..) => {
-                info!("Write successful.");
+                info!("Write successful");
                 return Status::CmdExecComplete as u8;
             }
             Err(e) => {
@@ -255,7 +257,7 @@ impl<'l> R503<'l> {
     }
 
     async fn read(&mut self, timeout: u64) -> Vec<u8, 128> {
-        info!("Reading reply.");
+        info!("Reading reply");
 
         let mut buf: [u8; 1] = [0; 1]; // Can only read one byte at a time!
         let mut data: Vec<u8, 128> = heapless::Vec::new(); // Return buffer.
@@ -263,8 +265,9 @@ impl<'l> R503<'l> {
 
         if DISABLE_RW {
             // Just for debugging purposes.
-            Timer::after_millis(250).await; // Give it quarter of a sec for debug output to catch up.
-            debug!("  Read disabled by `DISABLE_RW`.");
+            // Give it quarter of a sec for debug output to catch up.
+            trace!("  Read disabled by `DISABLE_RW`");
+            Timer::after_millis(250).await;
 
             return data; // Fake a success.
         }
@@ -288,7 +291,7 @@ impl<'l> R503<'l> {
             error!("Empty response - no data");
             return data;
         }
-        info!("Read successful.");
+        info!("Read successful");
 
         // Save the response.
         self.received = data.clone();
@@ -332,6 +335,7 @@ impl<'l> R503<'l> {
 
         // Send package.
         self.write().await;
+        Timer::after_millis(250).await; // Give it 1/4s to settle.
 
         // =====
 
@@ -339,7 +343,7 @@ impl<'l> R503<'l> {
         // NOTE: Need to update this as I start testing more commands.
         let timeout: u64;
         match command {
-            Command::GenImg => timeout = 300,
+            Command::GenImg => timeout = 500,
             Command::Img2Tz => timeout = 1000,
             _ => timeout = 200,
         }
@@ -368,7 +372,7 @@ impl<'l> R503<'l> {
     }
 
     async fn parse_result(&mut self) -> Status {
-        info!("Parsing reply.");
+        info!("Parsing reply");
 
         if self.received.is_empty() {
             return Status::ErrorReceivePackage;
@@ -383,7 +387,7 @@ impl<'l> R503<'l> {
             error!("Bad package (start)");
             return Status::ErrorReceivePackage;
         } else {
-            debug!("  Package start is ok.");
+            debug!("  Package start is ok");
         }
 
         let address = u32::from_be_bytes([
@@ -408,7 +412,7 @@ impl<'l> R503<'l> {
                 error!("Bad package (address)");
                 return Status::ErrorReceivePackage;
             } else {
-                debug!("  Package address is ok.");
+                debug!("  Package address is ok");
             }
         }
 
@@ -417,7 +421,7 @@ impl<'l> R503<'l> {
             error!("Bad package (pid)");
             return Status::ErrorReceivePackage;
         } else {
-            debug!("  Package pid is ok.");
+            debug!("  Package pid is ok");
         }
 
         // TODO: Depends on DATA returned:
@@ -647,7 +651,7 @@ impl<'l> R503<'l> {
     //   Checksum		 2 bytes	Sum		(see top)
     // TODO: Return `Status` and ... (16 bytes - `[u8, 16]`)??
     pub async fn ReadSysPara(&mut self) -> Status {
-        info!("COMMAND: Read status register and basic configuration parameters.");
+        info!("COMMAND: Read status register and basic configuration parameters");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -678,7 +682,7 @@ impl<'l> R503<'l> {
     //   Checksum		 2 bytes	Sum		(see top)
     // TODO: Return `Status` and ... (2 bytes - `[u8, 2]`)??
     pub async fn TempleteNum(&mut self) -> Status {
-        info!("COMMAND: Read current valid template number.");
+        info!("COMMAND: Read current valid template number");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -755,7 +759,7 @@ impl<'l> R503<'l> {
     //   Confirmation code	 1 byte		xx		(see above)
     //   Checksum		 2 bytes	Sum		(see top)
     pub async fn GenImg(&mut self) -> Status {
-        info!("COMMAND: Scanning finger.");
+        info!("COMMAND: Scanning finger");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -784,7 +788,7 @@ impl<'l> R503<'l> {
     //   Confirmation code	 1 byte		xx		(see above)
     //   Checksum		 2 bytes	Sum		(see top)
     pub async fn UpImage(&mut self) -> Status {
-        info!("COMMAND: Upload image from image buffer to upper computer.");
+        info!("COMMAND: Upload image from image buffer to upper computer");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -813,7 +817,7 @@ impl<'l> R503<'l> {
     //   Confirmation code	 1 byte		xx		(see above)
     //   Checksum		 2 bytes	Sum		(see top)
     pub async fn DownImage(&mut self) -> Status {
-        info!("COMMAND: Download image from upper computer to image buffer.");
+        info!("COMMAND: Download image from upper computer to image buffer");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -886,7 +890,7 @@ impl<'l> R503<'l> {
     //   Confirmation code	 1 byte		xx		(see above)
     //   Checksum		 2 bytes	Sum		(see top)
     pub async fn RegModel(&mut self) -> Status {
-        info!("COMMAND: Generate fingerprint template.");
+        info!("COMMAND: Generate fingerprint template");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -1119,7 +1123,7 @@ impl<'l> R503<'l> {
     //   Confirmation code	 1 byte		xx		(see above)
     //   Checksum		 2 bytes	Sum		(see top)
     pub async fn Empty(&mut self) -> Status {
-        info!("COMMAND: Delete all templates in flash.");
+        info!("COMMAND: Delete all templates in flash");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -1151,7 +1155,7 @@ impl<'l> R503<'l> {
     //     Matching Score	 2 byte
     //   Checksum		 2 bytes	Sum		(see top)
     pub async fn Match(&mut self) -> Status {
-        info!("COMMAND: Match template.");
+        info!("COMMAND: Match template");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -1196,7 +1200,7 @@ impl<'l> R503<'l> {
     // TODO: Return `Status`, PageID (2 bytes - `[u8, 2]`) and MatchScore (2 bytes - `[u8, 2]`)??
     pub async fn Search(&mut self, buff: u8, start: u16, page: u16) -> Status {
         info!("COMMAND: Search fingerpringt library for template: {=u8:#04x}H/{=u16:#06x}H/{=u16:#06x}H",
-	buff, start, page);
+        buff, start, page);
 
         let mut data: Vec<u8, 128> = heapless::Vec::new();
         let _ = data.push(buff);
@@ -1243,7 +1247,7 @@ impl<'l> R503<'l> {
     //   Confirmation code	 1 byte		xx		(see above)
     //   Checksum		 2 bytes	Sum		(see top)
     pub async fn GetImageEx(&mut self) -> Status {
-        info!("COMMAND: Scan finger, record image and store it buffer.");
+        info!("COMMAND: Scan finger, record image and store it buffer");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -1271,7 +1275,7 @@ impl<'l> R503<'l> {
     //   Confirmation code	 1 byte		xx		(see above)
     //   Checksum		 2 bytes	Sum		(see top)
     pub async fn Cancel(&mut self) -> Status {
-        info!("COMMAND: Cancel instruction.");
+        info!("COMMAND: Cancel instruction");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -1302,7 +1306,7 @@ impl<'l> R503<'l> {
     //   Confirmation code	 1 byte		xx		(see above)
     //   Checksum		 2 bytes	Sum		(see top)
     pub async fn HandShake(&mut self) -> Status {
-        info!("COMMAND: Handshake.");
+        info!("COMMAND: Handshake");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -1330,7 +1334,7 @@ impl<'l> R503<'l> {
     //   Confirmation code	 1 byte		xx		(see above)
     //   Checksum		 2 bytes	Sum		(see top)
     pub async fn CheckSensor(&mut self) -> Status {
-        info!("COMMAND: Checking sensor.");
+        info!("COMMAND: Checking sensor");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -1363,7 +1367,7 @@ impl<'l> R503<'l> {
     //   Checksum		 2 bytes	Sum		(see top)
     // TODO: Return `Status` and AlgVer (32 bytes - `[u8, 32]`)??
     pub async fn GetAlgVer(&mut self) -> Status {
-        info!("COMMAND: Get algorithm library version.");
+        info!("COMMAND: Get algorithm library version");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -1396,7 +1400,7 @@ impl<'l> R503<'l> {
     //   Checksum		 2 bytes	Sum		(see top)
     // TODO: Return `Status` and FwVer (32 bytes - `[u8, 32]`)??
     pub async fn GetFwVer(&mut self) -> Status {
-        info!("COMMAND: Get firmware version.");
+        info!("COMMAND: Get firmware version");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -1429,7 +1433,7 @@ impl<'l> R503<'l> {
     //   Checksum		 2 bytes	Sum		(see top)
     // TODO: Return `Status` and ProdInfo (46 bytes - `[u8, 46]`)??
     pub async fn ReadProdInfo(&mut self) -> Status {
-        info!("COMMAND: Read product information.");
+        info!("COMMAND: Read product information");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -1458,7 +1462,7 @@ impl<'l> R503<'l> {
     //   Confirmation code	 1 byte		xx		(see above)
     //   Checksum		 2 bytes	Sum		(see top)
     pub async fn SoftRst(&mut self) -> Status {
-        info!("COMMAND: Soft reset.");
+        info!("COMMAND: Soft reset");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -1551,7 +1555,7 @@ impl<'l> R503<'l> {
     //     Random Number	 4 bytes
     //   Checksum		 2 bytes	Sum		(see top)
     pub async fn GetRandomCode(&mut self) -> Status {
-        info!("COMMAND: Get random code.");
+        info!("COMMAND: Get random code");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -1580,7 +1584,7 @@ impl<'l> R503<'l> {
     //   Confirmation code	 1 byte		xx		(see above)
     //   Checksum		 2 bytes	Sum		(see top)
     pub async fn ReadInfPage(&mut self) -> Status {
-        info!("COMMAND: Read information page.");
+        info!("COMMAND: Read information page");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -1650,7 +1654,7 @@ impl<'l> R503<'l> {
     //   Checksum		 2 bytes	Sum		(see top)
     // TODO: Return `Status` and User Content (32 bytes - `[u8, 32]`)??
     pub async fn ReadNotepad(&mut self) -> Status {
-        info!("COMMAND: Read notepad.");
+        info!("COMMAND: Read notepad");
 
         let data: Vec<u8, 128> = heapless::Vec::new();
 
@@ -1675,10 +1679,10 @@ impl<'l> R503<'l> {
                 return true;
             }
             Status::ErrorReceivePackage => {
-                error!("Fingerprint scanner LED set - package receive");
+                error!("Package receive: Wrapper_AuraSet_BlinkinRedSlow()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}'", stat as u8);
+                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_BlinkinRedSlow()", stat as u8);
             }
         }
 
@@ -1700,10 +1704,10 @@ impl<'l> R503<'l> {
                 return true;
             }
             Status::ErrorReceivePackage => {
-                error!("Fingerprint scanner LED set - package receive");
+                error!("Package receive: Wrapper_AuraSet_BlinkinRedMedium()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}'", stat as u8);
+                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_BlinkinRedMedium()", stat as u8);
             }
         }
 
@@ -1725,10 +1729,10 @@ impl<'l> R503<'l> {
                 return true;
             }
             Status::ErrorReceivePackage => {
-                error!("Fingerprint scanner LED set - package receive");
+                error!("Package receive: Wrapper_AuraSet_BlinkinRedFast()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}'", stat as u8);
+                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_BlinkinRedFast()", stat as u8);
             }
         }
 
@@ -1745,10 +1749,10 @@ impl<'l> R503<'l> {
                 return true;
             }
             Status::ErrorReceivePackage => {
-                error!("Fingerprint scanner LED set - package receive");
+                error!("Package receive: Wrapper_AuraSet_SteadyRed()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}'", stat as u8);
+                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_SteadyRed()", stat as u8);
             }
         }
 
@@ -1772,10 +1776,10 @@ impl<'l> R503<'l> {
                 return true;
             }
             Status::ErrorReceivePackage => {
-                error!("Fingerprint scanner LED set - package receive");
+                error!("Package receive: Wrapper_AuraSet_BlinkinBlueMedium()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}'", stat as u8);
+                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_BlinkinBlueMedium()", stat as u8);
             }
         }
 
@@ -1792,10 +1796,10 @@ impl<'l> R503<'l> {
                 return true;
             }
             Status::ErrorReceivePackage => {
-                error!("Fingerprint scanner LED set - package receive");
+                error!("Package receive: Wrapper_AuraSet_SteadyBlue()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}'", stat as u8);
+                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_SteadyBlue()", stat as u8);
             }
         }
 
@@ -1817,10 +1821,10 @@ impl<'l> R503<'l> {
                 return true;
             }
             Status::ErrorReceivePackage => {
-                error!("Fingerprint scanner LED set - package receive");
+                error!("Package receive: Wrapper_AuraSet_BlinkinPurpleMedium()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}'", stat as u8);
+                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_BlinkinPurpleMedium()", stat as u8);
             }
         }
 
@@ -1837,10 +1841,10 @@ impl<'l> R503<'l> {
                 return true;
             }
             Status::ErrorReceivePackage => {
-                error!("Fingerprint scanner LED set - package receive");
+                error!("Package receive: Wrapper_AuraSet_SteadyPurpe()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}'", stat as u8);
+                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_SteadyPurpe()", stat as u8);
             }
         }
 
@@ -1859,10 +1863,10 @@ impl<'l> R503<'l> {
                 return true;
             }
             Status::ErrorReceivePackage => {
-                error!("Fingerprint scanner LED set - package receive");
+                error!("Package receive: Wrapper_AuraSet_Off()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}'", stat as u8);
+                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_Off()", stat as u8);
             }
         }
 
@@ -1876,7 +1880,7 @@ impl<'l> R503<'l> {
                 // Fall through..
             }
             Status::ErrorReceivePackage => {
-                error!("Package receive");
+                error!("Package receive: Wrapper_Setup()/VfyPwd()");
 
                 self.Wrapper_AuraSet_BlinkinRedMedium().await;
                 return false;
@@ -1888,7 +1892,7 @@ impl<'l> R503<'l> {
                 return false;
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}'", stat as u8);
+                error!("Unknown return code='{=u8:#04x}': Wrapper_Setup()/VfyPwd()", stat as u8);
 
                 self.Wrapper_AuraSet_Off().await;
                 return false;
@@ -1901,13 +1905,13 @@ impl<'l> R503<'l> {
                 // Fall through..
             }
             Status::ErrorReceivePackage => {
-                error!("Package receive");
+                error!("Package receive: Wrapper_Setup()/SoftRst()");
 
                 self.Wrapper_AuraSet_BlinkinRedMedium().await;
                 return false;
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}'", stat as u8);
+                error!("Unknown return code='{=u8:#04x}': Wrapper_Setup()/SoftRst()", stat as u8);
 
                 self.Wrapper_AuraSet_Off().await;
                 return false;
@@ -1921,17 +1925,17 @@ impl<'l> R503<'l> {
                 // Fall through..
             }
             Status::ErrorSensorAbnormal => {
-                error!("Sensor is abnormal.");
+                error!("Sensor is abnormal: Wrapper_Setup()/CheckSensor()");
                 return false;
             }
             Status::ErrorReceivePackage => {
-                error!("Package receive");
+                error!("Package receive: Wrapper_Setup()/CheckSensor()");
 
                 self.Wrapper_AuraSet_BlinkinRedMedium().await;
                 return false;
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}'", stat as u8);
+                error!("Unknown return code='{=u8:#04x}': Wrapper_Setup()/CheckSensor()", stat as u8);
 
                 self.Wrapper_AuraSet_Off().await;
                 return false;
@@ -1944,13 +1948,13 @@ impl<'l> R503<'l> {
                 return true;
             }
             Status::ErrorReceivePackage => {
-                error!("Package receive");
+                error!("Package receive: Wrapper_Setup()/ReadSysPara()");
 
                 self.Wrapper_AuraSet_BlinkinRedMedium().await;
                 return false;
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}'", stat as u8);
+                error!("Unknown return code='{=u8:#04x}': Wrapper_Setup()/ReadSysPara()", stat as u8);
 
                 self.Wrapper_AuraSet_Off().await;
                 return false;
@@ -1964,9 +1968,12 @@ impl<'l> R503<'l> {
         // right, it returns "no finger on sensor" (`ErrorNoFingerOnSensor`)!
         self.Wrapper_AuraSet_BlinkinBlueMedium().await;
 
-        info!("Place the finger on the scanner.");
+        info!("Place the finger on the scanner");
         if DISABLE_RW {
-            Timer::after_millis(250).await; // Give it quarter of a sec for debug output to catch up.
+            // Give it quarter of a sec for debug output to catch up.
+            trace!("  Get fingerprint disabled by `DISABLE_RW`");
+            Timer::after_millis(250).await;
+            return true; // Fake success.
         } else {
             if self.wakeup.get_level() == Level::High {
                 self.wakeup.wait_for_low().await;
@@ -1977,33 +1984,34 @@ impl<'l> R503<'l> {
         debug!("  Finger detected");
 
         // Scan the finger.
+        debug!("Generating image");
         match self.GenImg().await {
             Status::CmdExecComplete => {
-                info!("Successfully got image.");
+                info!("Successfully got image");
 
                 self.Wrapper_AuraSet_SteadyBlue().await;
                 // Fall through..
             }
             Status::ErrorReceivePackage => {
-                error!("Package receive");
+                error!("Package receive: Wrapper_Get_Fingerprint()/GenImg()");
 
                 self.Wrapper_AuraSet_BlinkinRedMedium().await;
                 return false;
             }
             Status::ErrorNoFingerOnSensor => {
-                error!("No finger on sensor");
+                error!("No finger on sensor: Wrapper_Get_Fingerprint()/GenImg()");
 
                 self.Wrapper_AuraSet_BlinkinRedSlow().await;
                 return false;
             }
             Status::ErrorEnroleFinger => {
-                error!("Failed to enrole finger");
+                error!("Failed to enrole finger: Wrapper_Get_Fingerprint()/GenImg()");
 
                 self.Wrapper_AuraSet_BlinkinRedMedium().await;
                 return false;
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}'", stat as u8);
+                error!("Unknown return code='{=u8:#04x}': Wrapper_Get_Fingerprint()/GenImg()", stat as u8);
 
                 self.Wrapper_AuraSet_Off().await;
                 return false;
@@ -2011,13 +2019,14 @@ impl<'l> R503<'l> {
         }
 
         // Generate character file from the finger image.
+        debug!("Generate character file");
         match self.Img2Tz(store).await {
             Status::CmdExecComplete => {
                 info!("Successfully generated character from fingerprint image");
                 return true;
             }
             Status::ErrorReceivePackage => {
-                error!("Package receive");
+                error!("Package receive: Wrapper_Get_Fingerprint()/Img2Tz()");
 
                 self.Wrapper_AuraSet_BlinkinRedMedium().await;
                 return false;
@@ -2041,7 +2050,7 @@ impl<'l> R503<'l> {
                 return false;
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}'", stat as u8);
+                error!("Unknown return code='{=u8:#04x}': Wrapper_Get_Fingerprint()/Img2Tz()", stat as u8);
 
                 self.Wrapper_AuraSet_Off().await;
                 return false;
@@ -2058,7 +2067,7 @@ impl<'l> R503<'l> {
             error!("Can't setup scanner");
             return false;
         } else {
-            info!("Setup complete.");
+            info!("Setup complete");
 
             if !self.Wrapper_AuraSet_SteadyBlue().await {
                 error!("Can't set colour steady blue");
@@ -2066,7 +2075,6 @@ impl<'l> R503<'l> {
             } else {
                 // =====
                 // 2) Get the fingerprint - #1.
-                // TODO: Go through each store!
                 if !self.Wrapper_Get_Fingerprint(1).await {
                     error!("Couldn't scan the finger");
                     return false;
@@ -2089,7 +2097,7 @@ impl<'l> R503<'l> {
                                 // Fall through..
                             }
                             Status::ErrorReceivePackage => {
-                                error!("Package receive");
+                                error!("Package receive: Wrapper_Enrole_Fingerprint()/RegModel()");
 
                                 self.Wrapper_AuraSet_BlinkinRedMedium().await;
                                 return false;
@@ -2101,7 +2109,7 @@ impl<'l> R503<'l> {
                                 return true;
                             }
                             stat => {
-                                error!("Unknown return code='{=u8:#04x}'", stat as u8);
+                                error!("Unknown return code='{=u8:#04x}': Wrapper_Enrole_Fingerprint()/RegModel()", stat as u8);
 
                                 self.Wrapper_AuraSet_Off().await;
                                 return true;
@@ -2112,13 +2120,13 @@ impl<'l> R503<'l> {
                         // 5) Store the fingerprint model in the flash.
                         match self.Store(0x01, STORE).await {
                             Status::CmdExecComplete => {
-                                info!("Fingerprint model stored in the flash.");
+                                info!("Fingerprint model stored in the flash");
 
                                 self.Wrapper_AuraSet_Off().await;
                                 return true;
                             }
                             Status::ErrorReceivePackage => {
-                                error!("Package receive");
+                                error!("Package receive: Wrapper_Enrole_Fingerprint()/Store()");
 
                                 self.Wrapper_AuraSet_BlinkinRedMedium().await;
                                 return false;
@@ -2136,7 +2144,7 @@ impl<'l> R503<'l> {
                                 return false;
                             }
                             stat => {
-                                error!("Unknown return code='{=u8:#04x}'", stat as u8);
+                                error!("Unknown return code='{=u8:#04x}': Wrapper_Enrole_Fingerprint()/Store()", stat as u8);
 
                                 self.Wrapper_AuraSet_Off().await;
                                 return false;
@@ -2157,50 +2165,44 @@ impl<'l> R503<'l> {
             error!("Can't setup scanner");
             return false;
         } else {
-            info!("Setup complete.");
+            info!("Setup complete");
 
-            if !self.Wrapper_AuraSet_SteadyBlue().await {
-                error!("Can't set colour steady blue");
+            // =====
+            // 2) Get the fingerprint.
+            if !self.Wrapper_Get_Fingerprint(1).await {
+                error!("Couldn't scan the finger");
                 return false;
             } else {
+                info!("Scanned and saved the finger");
+
                 // =====
-                // 2) Get the fingerprint - #1.
-                // TODO: Go through each store!
-                if !self.Wrapper_Get_Fingerprint(1).await {
-                    error!("Couldn't scan the finger");
-                    return false;
-                } else {
-                    info!("Scanned and saved the finger");
+                // 3) Search for the fingerprint
+                // NOTE: This is not a wrapper, so here we need to check the result,
+                //       and set the aura accordingly.
+                match self.Search(1, 0, 0xffff).await {
+                    Status::CmdExecComplete => {
+                        info!("Fingerprint found");
 
-                    // =====
-                    // 3) Search for the fingerprint
-                    // NOTE: This is not a wrapper, so here we need to check the result,
-                    //       and set the aura accordingly.
-                    match self.Search(1, 0, 0xffff).await {
-                        Status::CmdExecComplete => {
-                            info!("Fingerprint fount.");
+                        self.Wrapper_AuraSet_Off().await;
+                        return true;
+                    }
+                    Status::ErrorReceivePackage => {
+                        error!("Package receive: Wrapper_Verify_Fingerprint()/Search()");
 
-                            self.Wrapper_AuraSet_Off().await;
-                            return true;
-                        }
-                        Status::ErrorReceivePackage => {
-                            error!("Package receive");
+                        self.Wrapper_AuraSet_BlinkinRedMedium().await;
+                        return false;
+                    }
+                    Status::ErrorNoMatchingFinger => {
+                        error!("No matching finger");
 
-                            self.Wrapper_AuraSet_BlinkinRedMedium().await;
-                            return false;
-                        }
-                        Status::ErrorNoMatchingFinger => {
-                            error!("No matching finger");
+                        self.Wrapper_AuraSet_BlinkinRedMedium().await;
+                        return false;
+                    }
+                    stat => {
+                        error!("Unknown return code='{=u8:#04x}'", stat as u8);
 
-                            self.Wrapper_AuraSet_BlinkinRedMedium().await;
-                            return false;
-                        }
-                        stat => {
-                            error!("Unknown return code='{=u8:#04x}'", stat as u8);
-
-                            self.Wrapper_AuraSet_Off().await;
-                            return false;
-                        }
+                        self.Wrapper_AuraSet_Off().await;
+                        return false;
                     }
                 }
             }
