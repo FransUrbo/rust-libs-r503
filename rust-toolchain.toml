@@ -1,0 +1,5 @@
+[toolchain]
+channel = "stable"
+components = [ "rustc", "cargo", "clippy", "rustfmt", "rust-docs", "rust-src", "rust-std" ]
+targets = [ "thumbv6m-none-eabi" ]
+profile = "default"

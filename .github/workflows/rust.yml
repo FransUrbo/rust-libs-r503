@@ -1,0 +1,97 @@
+name: Drive By Wire/R503
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+      - "feature/**"
+      - "hotfix/**"
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - edited
+      - synchronize
+  release:
+    types:
+      - released
+
+env:
+  CARGO_TERM_COLOR: always
+  DEFMT_LOG: debug
+
+jobs:
+  check:
+    name: Code check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get -y update
+          sudo apt-get -y install build-essential libssl-dev gcc-arm-none-eabi binutils-arm-none-eabi libclang-dev clang curl git
+          echo "Fetching Rust dependencies"
+          cargo fetch
+          echo "Installing Rust binaries"
+          cargo install flip-link
+
+      - name: Add rust target for thumbv6m
+        run: rustup target add thumbv6m-none-eabi
+
+      - name: Check project
+        run: cargo verify-project
+
+      - name: Check linting
+        run: cargo clippy 2>&1 | tee _check-package.log
+
+      - name: Check formating
+        run: cargo fmt --check 2>&1 | tee _check-fmt.log
+
+  build:
+    name: Build apps
+    needs: check
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - dev
+          - release
+          - release-dev
+    defaults:
+      run:
+        working-directory: ./
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get -y update
+          sudo apt-get -y install build-essential libssl-dev gcc-arm-none-eabi binutils-arm-none-eabi libclang-dev clang curl git
+          echo "Fetching Rust dependencies"
+          cargo fetch
+          echo "Installing Rust binaries"
+          cargo install flip-link
+
+      - name: Add rust target for thumbv6m
+        run: rustup target add thumbv6m-none-eabi
+
+      - name: Build ${{ matrix.target }}
+        run: cargo build --verbose --profile ${{ matrix.target }}
+
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-${{ matrix.target }}
+          path: |
+            target/thumbv6m-none-eabi/${{ matrix.target == 'dev' && 'debug' || matrix.target }}/libr503.rlib
+            _check-package.log
+            _check-fmt.log
