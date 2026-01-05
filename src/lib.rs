@@ -196,8 +196,8 @@ impl<'l> R503<'l> {
         // Initialize the WAKEUP pin.
         let wakeup = Input::new(pin_wakeup, Pull::Down);
         match wakeup.get_level() {
-            Level::Low => debug!("Initial WAKEUP level: LOW"),
-            Level::High => debug!("Initial WAKEUP level: HIGH"),
+            Level::Low => debug!("Initial FP WAKEUP pin level: LOW"),
+            Level::High => debug!("Initial FP WAKEUP pin level: HIGH"),
         }
 
         Self {
@@ -246,7 +246,7 @@ impl<'l> R503<'l> {
 
         match self.tx.write(&self.buffer).await {
             Ok(..) => {
-                info!("Write successful");
+                debug!("Write successful");
                 return Status::CmdExecComplete as u8;
             }
             Err(e) => {
@@ -257,7 +257,7 @@ impl<'l> R503<'l> {
     }
 
     async fn read(&mut self, timeout: u64) -> Vec<u8, 128> {
-        info!("Reading reply");
+        debug!("Reading reply");
 
         let mut buf: [u8; 1] = [0; 1]; // Can only read one byte at a time!
         let mut data: Vec<u8, 128> = heapless::Vec::new(); // Return buffer.
@@ -291,7 +291,7 @@ impl<'l> R503<'l> {
             error!("Empty response - no data");
             return data;
         }
-        info!("Read successful");
+        debug!("Read successful");
 
         // Save the response.
         self.received = data.clone();
@@ -302,7 +302,7 @@ impl<'l> R503<'l> {
     // -----
 
     async fn send_command(&mut self, command: Command, data: Vec<u8, 128>) -> Status {
-        info!(
+        debug!(
             "Sending command {=u8:#04x}H ({:?})",
             command as u8,
             self.debug_vec(&data, false).await
@@ -372,7 +372,7 @@ impl<'l> R503<'l> {
     }
 
     async fn parse_result(&mut self) -> Status {
-        info!("Parsing reply");
+        debug!("Parsing reply");
 
         if self.received.is_empty() {
             return Status::ErrorReceivePackage;
@@ -1984,7 +1984,7 @@ impl<'l> R503<'l> {
         debug!("  Finger detected");
 
         // Scan the finger.
-        debug!("Generating image");
+        info!("Generating image");
         match self.GenImg().await {
             Status::CmdExecComplete => {
                 info!("Successfully got image");
