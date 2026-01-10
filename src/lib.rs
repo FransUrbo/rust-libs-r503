@@ -1,7 +1,7 @@
 #![no_std]
 #![allow(non_snake_case)] // I want to keep with the manufacturers naming scheme.
 
-use defmt::{debug, error, info, trace};
+use defmt::{debug, error, info, trace, Format};
 
 use embassy_rp::dma::Channel;
 use embassy_rp::gpio::{AnyPin, Input, Level, Pull}; // For the wakeup.
@@ -153,14 +153,21 @@ pub enum Parameters {
     DataPkgLen = 0x06,
 }
 
-#[derive(Copy, Clone)]
-#[repr(u8)]
+#[derive(Copy, Clone, Format)]
+#[repr(u16)]
 pub enum SecurityLevels {
-    One,
-    Two,
-    Three,
-    Four,
-    Five,
+    One = 1,
+    Two = 2,
+    Three = 3,
+    Four = 4,
+    Five = 5,
+}
+
+impl From<u16> for SecurityLevels {
+    fn from(t: u16) -> SecurityLevels {
+        assert!(Self::One as u16 <= t && t <= Self::Five as u16);
+        unsafe { transmute(t) }
+    }
 }
 
 // =====
@@ -338,9 +345,11 @@ impl<'l> R503<'l> {
         self.buffer.clear();
 
         // Setup data package.
-        self.write_cmd_bytes(&(Packets::StartCode as u16).to_be_bytes()[..]).await;
+        self.write_cmd_bytes(&(Packets::StartCode as u16).to_be_bytes()[..])
+            .await;
         self.write_cmd_bytes(&self.address.to_be_bytes()[..]).await;
-        self.write_cmd_bytes(&[PacketCode::CommandPacket as u8]).await;
+        self.write_cmd_bytes(&[PacketCode::CommandPacket as u8])
+            .await;
 
         // Add the length of the package content (command packets and data packets). See below.
         // Length is calculated on 'the Package Identifier (1 byte) + data (??) + checksum (2 bytes)'.
@@ -501,10 +510,13 @@ impl<'l> R503<'l> {
                 trace!("    Status register: {=u16:#04x}", params.status_register);
                 trace!("    System ID: {=u16:#04x}", params.system_id);
                 trace!("    Library size: {=u16:#04x}", params.library_size);
-                trace!("    Security level: {=u16:#04x}", params.security_level);
+                trace!(
+                    "    Security level: {}",
+                    SecurityLevels::from(params.security_level)
+                );
                 trace!("    Device address: {=u32:#04x}", params.device_address);
                 trace!("    Data package size: {=u16:#04x}", params.data_size);
-                trace!("    Baud rate: {=u16:#04x}", params.baud_rate);
+                trace!("    Baud rate: {}", params.baud_rate * 9600); // Value in increments of 9600.
             }
         }
 
