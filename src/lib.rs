@@ -2150,13 +2150,13 @@ impl<'l> R503<'l> {
                                 error!("Failed to combine character files");
 
                                 self.Wrapper_AuraSet_BlinkinRedMedium().await;
-                                return true;
+                                return false;
                             }
                             stat => {
                                 error!("Unknown return code='{=u8:#04x}': Wrapper_Enrole_Fingerprint()/RegModel()", stat as u8);
 
                                 self.Wrapper_AuraSet_Off().await;
-                                return true;
+                                return false;
                             }
                         }
 
