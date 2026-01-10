@@ -2125,6 +2125,9 @@ impl<'l> R503<'l> {
                 } else {
                     info!("Scanned and saved the finger (#1)");
 
+                    self.Wrapper_AuraSet_Off().await;
+                    Timer::after_secs(3).await;
+
                     // =====
                     // 3) Get the fingerprint - #2.
                     if !self.Wrapper_Get_Fingerprint(2).await {
@@ -2187,7 +2190,7 @@ impl<'l> R503<'l> {
                             Status::ErrorWriteFlash => {
                                 error!("Can't write flash");
 
-                                self.Wrapper_AuraSet_BlinkinRedMedium().await;
+                                self.Wrapper_AuraSet_BlinkinRedFast().await;
                                 return false;
                             }
                             stat => {
