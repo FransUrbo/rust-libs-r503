@@ -17,7 +17,6 @@ use heapless::Vec;
 
 // =====
 
-const START: u16 = 0xEF01;
 const DISABLE_RW: bool = false; // Disable the read and write functions.
 
 #[derive(Copy, Clone)]
@@ -146,7 +145,35 @@ pub enum AuroraLEDSpeed {
     Fast = 0x02,
 }
 
+#[derive(Copy, Clone)]
+#[repr(u8)]
+pub enum Parameters {
+    BaudRate = 0x04,
+    SecurityLevel = 0x05,
+    DataPkgLen = 0x06,
+}
+
+#[derive(Copy, Clone)]
+#[repr(u8)]
+pub enum SecurityLevels {
+    One,
+    Two,
+    Three,
+    Four,
+    Five,
+}
+
 // =====
+
+struct SystemParameters {
+    status_register: u16,
+    system_id: u16,
+    library_size: u16,
+    security_level: u16,
+    device_address: u32,
+    data_size: u16,
+    baud_rate: u16,
+}
 
 // T => UART0/UART1
 pub struct R503<'l> {
@@ -311,10 +338,9 @@ impl<'l> R503<'l> {
         self.buffer.clear();
 
         // Setup data package.
-        self.write_cmd_bytes(&START.to_be_bytes()[..]).await; // Start		u16
-        self.write_cmd_bytes(&self.address.to_be_bytes()[..]).await; // Address		u32
-        self.write_cmd_bytes(&[PacketCode::CommandPacket as u8])
-            .await; // Package identifier	u8
+        self.write_cmd_bytes(&(Packets::StartCode as u16).to_be_bytes()[..]).await;
+        self.write_cmd_bytes(&self.address.to_be_bytes()[..]).await;
+        self.write_cmd_bytes(&[PacketCode::CommandPacket as u8]).await;
 
         // Add the length of the package content (command packets and data packets). See below.
         // Length is calculated on 'the Package Identifier (1 byte) + data (??) + checksum (2 bytes)'.
@@ -378,23 +404,36 @@ impl<'l> R503<'l> {
         }
 
         // Known values:
-        //   1) Byte  1- 2 should contain the START code	- `0xFE01`.
-        //   2) Byte  3- 6 should contain the ADDRESS		- `0xFFFFFFFF`.
-        //   3) Byte     7 should contain the PID		- `0x07H` ("Acknowledge packet").
+        //   1) Byte  0- 1 START code				- `0xFE01`.
+        //   2) Byte  2- 5 ADDRESS				- `0xFFFFFFFF`.
+        //   3) Byte     6 PID					- `0x07H`.
+        //   4) Byte  7- 8 Package length			- `0x0013`.
+        //
+        // TODO: Depends on DATA returned:
+        //   5) Byte 10+   DATA					- `0x00`.
+        //                 could also be ConfirmationCode	- `0x00`.
+        //
+        //   6) Byte 11-12 Checksum				- `0x000a`.
+
+        // ----
+        // START
         let start = u16::from_be_bytes([self.received[0], self.received[1]]);
-        if start != START {
+        if start != Packets::StartCode as u16 {
             error!("Bad package (start)");
             return Status::ErrorReceivePackage;
         } else {
             debug!("  Package start is ok");
         }
 
+        // ----
+        // ADDRESS
         let address = u32::from_be_bytes([
             self.received[2],
             self.received[3],
             self.received[4],
             self.received[5],
         ]);
+
         if self.buffer[9] == Command::SetAdder as u8
             && self.received[6] == 0x07
             && self.received[9] == 0x00
@@ -415,20 +454,61 @@ impl<'l> R503<'l> {
             }
         }
 
+        // ----
+        // PACKAGE ID
         let pid = u8::from_be_bytes([self.received[6]]);
-        if pid != 0x07 {
+        if pid != PacketCode::AckPacket as u8 {
             error!("Bad package (pid)");
             return Status::ErrorReceivePackage;
         } else {
             debug!("  Package pid is ok");
         }
 
-        // TODO: Depends on DATA returned:
-        //   4) Byte  8- 9 should contain the LENGTH		- `0x0003`.
-        //   5) Byte    10 should contain the DATA		- `0x00`.
-        //                 could also be ConfirmationCode	- `0x00`.
-        //   6) Byte 11-12 should contain the SUM		- `0x000a`.
+        // ----
+        // PACKAGE LENGTH
+        // => `pid` (1 byte) + `data` (x bytes) + checksum (2 bytes).
+        let package_len = u16::from_be_bytes([self.received[7], self.received[8]]);
+        debug!("  Package length: {}", package_len);
 
+        // DATA
+        let data_length: u16 = package_len - 3;
+        debug!("  Data length: {}", data_length);
+        if data_length > 0 {
+            if self.buffer[10] != Status::CmdExecComplete as u8 {
+                error!("Bad package (data)");
+                return Status::ErrorReceivePackage;
+            }
+
+            if self.buffer[9] == Command::ReadSysPara as u8 {
+                debug!("  Checking data package for ReadSysPara");
+
+                let params = SystemParameters {
+                    status_register: u16::from_be_bytes([self.received[10], self.received[11]]),
+                    system_id: u16::from_be_bytes([self.received[12], self.received[13]]),
+                    library_size: u16::from_be_bytes([self.received[14], self.received[15]]),
+                    security_level: u16::from_be_bytes([self.received[16], self.received[17]]),
+                    device_address: u32::from_be_bytes([
+                        self.received[18],
+                        self.received[19],
+                        self.received[20],
+                        self.received[21],
+                    ]),
+                    data_size: u16::from_be_bytes([self.received[22], self.received[23]]),
+                    baud_rate: u16::from_be_bytes([self.received[24], self.received[25]]),
+                };
+
+                trace!("  System parameters:");
+                trace!("    Status register: {=u16:#04x}", params.status_register);
+                trace!("    System ID: {=u16:#04x}", params.system_id);
+                trace!("    Library size: {=u16:#04x}", params.library_size);
+                trace!("    Security level: {=u16:#04x}", params.security_level);
+                trace!("    Device address: {=u32:#04x}", params.device_address);
+                trace!("    Data package size: {=u16:#04x}", params.data_size);
+                trace!("    Baud rate: {=u16:#04x}", params.baud_rate);
+            }
+        }
+
+        // RETURN: Confirmation Code.
         return self.received[9].into();
     }
 
