@@ -2123,7 +2123,7 @@ impl<'l> R503<'l> {
                     error!("Couldn't scan the finger");
                     return false;
                 } else {
-                    info!("Scanned and saved the finger");
+                    info!("Scanned and saved the finger (#1)");
 
                     // =====
                     // 3) Get the fingerprint - #2.
@@ -2131,7 +2131,7 @@ impl<'l> R503<'l> {
                         error!("Couldn't scan the finger (second time)");
                         return false;
                     } else {
-                        info!("Scanned and saved the finger (second time)");
+                        info!("Scanned and saved the finger (#2)");
 
                         // =====
                         // 4) Create a fingerprint model.
