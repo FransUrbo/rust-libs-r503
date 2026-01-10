@@ -18,7 +18,6 @@ use heapless::Vec;
 // =====
 
 const START: u16 = 0xEF01;
-const STORE: u16 = 0x0001; // 1-127 (high byte front and low byte behind)
 const DISABLE_RW: bool = false; // Disable the read and write functions.
 
 #[derive(Copy, Clone)]
@@ -2058,7 +2057,7 @@ impl<'l> R503<'l> {
         }
     }
 
-    pub async fn Wrapper_Enrole_Fingerprint(&mut self) -> bool {
+    pub async fn Wrapper_Enrole_Fingerprint(&mut self, buffer: u16) -> bool {
         // NOTE: In case of error here, don't set the aura, it's done in the sub functions!
 
         // =====
@@ -2118,9 +2117,12 @@ impl<'l> R503<'l> {
 
                         // =====
                         // 5) Store the fingerprint model in the flash.
-                        match self.Store(0x01, STORE).await {
+                        match self.Store(0x01, buffer).await {
                             Status::CmdExecComplete => {
-                                info!("Fingerprint model stored in the flash");
+                                info!(
+                                    "Fingerprint model stored in the flash (buffer={:?})",
+                                    buffer
+                                );
 
                                 self.Wrapper_AuraSet_Off().await;
                                 return true;
