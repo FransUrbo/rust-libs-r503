@@ -509,13 +509,13 @@ impl<'l> R503<'l> {
                 trace!("  System parameters:");
                 trace!("    Status register: {=u16:#04x}", params.status_register);
                 trace!("    System ID: {=u16:#04x}", params.system_id);
-                trace!("    Library size: {=u16:#04x}", params.library_size);
+                trace!("    Library size: {:03}", params.library_size);
                 trace!(
                     "    Security level: {}",
                     SecurityLevels::from(params.security_level)
                 );
                 trace!("    Device address: {=u32:#04x}", params.device_address);
-                trace!("    Data package size: {=u16:#04x}", params.data_size);
+                trace!("    Data package size: {}", self.translate_data_package_size(params.data_size));
                 trace!("    Baud rate: {}", params.baud_rate * 9600); // Value in increments of 9600.
             }
         }
@@ -537,6 +537,18 @@ impl<'l> R503<'l> {
         }
 
         return a;
+    }
+
+    fn translate_data_package_size(&self, size: u16) -> &'static str {
+        let val: &str;
+        match size {
+            0 => val = "32bytes/package",
+            1 => val = "64bytes/package",
+            2 => val = "128bytes/package",
+            3 => val = "256bytes/package",
+            _ => panic!("Unknown value: {}", size),
+        }
+        return val;
     }
 
     // ===== System-related instructions
