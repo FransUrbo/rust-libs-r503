@@ -1681,7 +1681,10 @@ impl<'l> R503<'l> {
                 error!("Package receive: Wrapper_AuraSet_BlinkinRedSlow()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_BlinkinRedSlow()", stat as u8);
+                error!(
+                    "Unknown return code='{=u8:#04x}': Wrapper_AuraSet_BlinkinRedSlow()",
+                    stat as u8
+                );
             }
         }
 
@@ -1706,7 +1709,10 @@ impl<'l> R503<'l> {
                 error!("Package receive: Wrapper_AuraSet_BlinkinRedMedium()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_BlinkinRedMedium()", stat as u8);
+                error!(
+                    "Unknown return code='{=u8:#04x}': Wrapper_AuraSet_BlinkinRedMedium()",
+                    stat as u8
+                );
             }
         }
 
@@ -1731,7 +1737,10 @@ impl<'l> R503<'l> {
                 error!("Package receive: Wrapper_AuraSet_BlinkinRedFast()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_BlinkinRedFast()", stat as u8);
+                error!(
+                    "Unknown return code='{=u8:#04x}': Wrapper_AuraSet_BlinkinRedFast()",
+                    stat as u8
+                );
             }
         }
 
@@ -1751,7 +1760,10 @@ impl<'l> R503<'l> {
                 error!("Package receive: Wrapper_AuraSet_SteadyRed()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_SteadyRed()", stat as u8);
+                error!(
+                    "Unknown return code='{=u8:#04x}': Wrapper_AuraSet_SteadyRed()",
+                    stat as u8
+                );
             }
         }
 
@@ -1778,7 +1790,10 @@ impl<'l> R503<'l> {
                 error!("Package receive: Wrapper_AuraSet_BlinkinBlueMedium()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_BlinkinBlueMedium()", stat as u8);
+                error!(
+                    "Unknown return code='{=u8:#04x}': Wrapper_AuraSet_BlinkinBlueMedium()",
+                    stat as u8
+                );
             }
         }
 
@@ -1798,7 +1813,10 @@ impl<'l> R503<'l> {
                 error!("Package receive: Wrapper_AuraSet_SteadyBlue()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_SteadyBlue()", stat as u8);
+                error!(
+                    "Unknown return code='{=u8:#04x}': Wrapper_AuraSet_SteadyBlue()",
+                    stat as u8
+                );
             }
         }
 
@@ -1823,7 +1841,10 @@ impl<'l> R503<'l> {
                 error!("Package receive: Wrapper_AuraSet_BlinkinPurpleMedium()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_BlinkinPurpleMedium()", stat as u8);
+                error!(
+                    "Unknown return code='{=u8:#04x}': Wrapper_AuraSet_BlinkinPurpleMedium()",
+                    stat as u8
+                );
             }
         }
 
@@ -1843,7 +1864,10 @@ impl<'l> R503<'l> {
                 error!("Package receive: Wrapper_AuraSet_SteadyPurpe()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_SteadyPurpe()", stat as u8);
+                error!(
+                    "Unknown return code='{=u8:#04x}': Wrapper_AuraSet_SteadyPurpe()",
+                    stat as u8
+                );
             }
         }
 
@@ -1865,7 +1889,10 @@ impl<'l> R503<'l> {
                 error!("Package receive: Wrapper_AuraSet_Off()");
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}': Wrapper_AuraSet_Off()", stat as u8);
+                error!(
+                    "Unknown return code='{=u8:#04x}': Wrapper_AuraSet_Off()",
+                    stat as u8
+                );
             }
         }
 
@@ -1891,7 +1918,10 @@ impl<'l> R503<'l> {
                 return false;
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}': Wrapper_Setup()/VfyPwd()", stat as u8);
+                error!(
+                    "Unknown return code='{=u8:#04x}': Wrapper_Setup()/VfyPwd()",
+                    stat as u8
+                );
 
                 self.Wrapper_AuraSet_Off().await;
                 return false;
@@ -1910,7 +1940,10 @@ impl<'l> R503<'l> {
                 return false;
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}': Wrapper_Setup()/SoftRst()", stat as u8);
+                error!(
+                    "Unknown return code='{=u8:#04x}': Wrapper_Setup()/SoftRst()",
+                    stat as u8
+                );
 
                 self.Wrapper_AuraSet_Off().await;
                 return false;
@@ -1934,7 +1967,10 @@ impl<'l> R503<'l> {
                 return false;
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}': Wrapper_Setup()/CheckSensor()", stat as u8);
+                error!(
+                    "Unknown return code='{=u8:#04x}': Wrapper_Setup()/CheckSensor()",
+                    stat as u8
+                );
 
                 self.Wrapper_AuraSet_Off().await;
                 return false;
@@ -1953,7 +1989,10 @@ impl<'l> R503<'l> {
                 return false;
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}': Wrapper_Setup()/ReadSysPara()", stat as u8);
+                error!(
+                    "Unknown return code='{=u8:#04x}': Wrapper_Setup()/ReadSysPara()",
+                    stat as u8
+                );
 
                 self.Wrapper_AuraSet_Off().await;
                 return false;
@@ -2010,7 +2049,10 @@ impl<'l> R503<'l> {
                 return false;
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}': Wrapper_Get_Fingerprint()/GenImg()", stat as u8);
+                error!(
+                    "Unknown return code='{=u8:#04x}': Wrapper_Get_Fingerprint()/GenImg()",
+                    stat as u8
+                );
 
                 self.Wrapper_AuraSet_Off().await;
                 return false;
@@ -2049,7 +2091,10 @@ impl<'l> R503<'l> {
                 return false;
             }
             stat => {
-                error!("Unknown return code='{=u8:#04x}': Wrapper_Get_Fingerprint()/Img2Tz()", stat as u8);
+                error!(
+                    "Unknown return code='{=u8:#04x}': Wrapper_Get_Fingerprint()/Img2Tz()",
+                    stat as u8
+                );
 
                 self.Wrapper_AuraSet_Off().await;
                 return false;
