@@ -567,26 +567,13 @@ impl<'l> R503<'l> {
         let rchk: u16 = u16::from_be_bytes([self.buffer[len - 2], self.buffer[len - 1]]);
         let cchk = self.compute_checksum(len - 2).await;
 
-        if command == Command::SoftRst && rchk == 2645 {
-            trace!(
-                "  Checksum: received={=u16:#06x}; calculated={=u16:#06x} - expected mismatch",
-                rchk,
-                cchk
-            );
-        } else {
-            trace!(
-                "  Checksum: received={=u16:#06x}; calculated={=u16:#06x}",
-                rchk,
-                cchk
-            );
-        }
-
         // Special case - the `SoftRst` command should always returns `0x0a55` (`2645D`) on success.
-        if (command == Command::SoftRst && rchk != 2645) && rchk != cchk {
+        if (command == Command::SoftRst && rchk == 2645) || rchk == cchk {
+            debug!("  Checksum is ok");
+            return Status::CmdExecComplete;
+        } else {
             error!("Checksums don't match");
             return Status::ErrorBadPackage;
-        } else {
-            return Status::CmdExecComplete;
         }
     }
 
