@@ -535,14 +535,14 @@ impl<'l> R503<'l> {
                 //		1 = Image buffer contains valid image
 
                 trace!("  System parameters:");
-                trace!("    Status register: {=u16:#04x}", self.params.status_register);
-                trace!("    System ID: {=u16:#04x}", self.params.system_id);
+                trace!("    Status register: {=u16:#06x}", self.params.status_register);
+                trace!("    System ID: {=u16:#06x}", self.params.system_id);
                 trace!("    Library size: {:03}", self.params.library_size);
                 trace!(
                     "    Security level: {}",
                     SecurityLevels::from(self.params.security_level)
                 );
-                trace!("    Device address: {=u32:#08x}", self.params.device_address);
+                trace!("    Device address: {=u32:#010x}", self.params.device_address);
                 trace!("    Data package size: {}", self.translate_data_package_size(self.params.data_size));
                 trace!("    Baud rate: {}", self.params.baud_rate * 9600); // Value in increments of 9600.
 
