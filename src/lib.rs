@@ -247,8 +247,8 @@ impl<'l> R503<'l> {
                 security_level: 0,
                 device_address: 0,
                 data_size: 0,
-                baud_rate: 0
-            }
+                baud_rate: 0,
+            },
         }
     }
 
@@ -374,8 +374,7 @@ impl<'l> R503<'l> {
         self.write_cmd_bytes(&data).await;
 
         // Calculate and add checksum.
-        // Checksum is calculated on 'length (2 bytes) + data (??)'.
-        let chk = self.compute_checksum().await;
+        let chk = self.compute_checksum(self.buffer.len()).await;
         self.write_cmd_bytes(&chk.to_be_bytes()[..]).await; // Checksum
 
         // Send package.
@@ -415,9 +414,12 @@ impl<'l> R503<'l> {
         let _ = self.buffer.extend_from_slice(bytes);
     }
 
-    async fn compute_checksum(&self) -> u16 {
+    // We calculate the checksum on Package ID, Package Length and Data.
+    // This is always starting at byte 6. How far we read in the buffer
+    // depends on if it's a write or a read - the read already HAVE the
+    // checksum in it..
+    async fn compute_checksum(&self, check_end: usize) -> u16 {
         let mut checksum = 0u16;
-        let check_end = self.buffer.len();
         let checked_bytes = &self.buffer[6..check_end];
         for byte in checked_bytes {
             checksum += (*byte) as u16;
@@ -426,7 +428,10 @@ impl<'l> R503<'l> {
     }
 
     async fn parse_result(&mut self, command: Command) -> Status {
-        debug!("Parsing reply ({:?})", self.debug_vec(&self.buffer, false).await);
+        debug!(
+            "Parsing reply ({:?})",
+            self.debug_vec(&self.buffer, false).await
+        );
 
         if self.buffer.is_empty() {
             return Status::ErrorReceivePackage;
@@ -535,24 +540,54 @@ impl<'l> R503<'l> {
                 //		1 = Image buffer contains valid image
 
                 trace!("  System parameters:");
-                trace!("    Status register: {=u16:#06x}", self.params.status_register);
+                trace!(
+                    "    Status register: {=u16:#06x}",
+                    self.params.status_register
+                );
                 trace!("    System ID: {=u16:#06x}", self.params.system_id);
                 trace!("    Library size: {:03}", self.params.library_size);
                 trace!(
                     "    Security level: {}",
                     SecurityLevels::from(self.params.security_level)
                 );
-                trace!("    Device address: {=u32:#010x}", self.params.device_address);
-                trace!("    Data package size: {}", self.translate_data_package_size(self.params.data_size));
+                trace!(
+                    "    Device address: {=u32:#010x}",
+                    self.params.device_address
+                );
+                trace!(
+                    "    Data package size: {}",
+                    self.translate_data_package_size(self.params.data_size)
+                );
                 trace!("    Baud rate: {}", self.params.baud_rate * 9600); // Value in increments of 9600.
-
-                let chk = self.compute_checksum().await;
-                trace!("    Checksum: {}", chk);
             }
         }
 
-        // RETURN: Confirmation Code.
-        return Status::CmdExecComplete;
+        // Checksum is always the last two bytes.
+        let len = self.buffer.len();
+        let rchk: u16 = u16::from_be_bytes([self.buffer[len - 2], self.buffer[len - 1]]);
+        let cchk = self.compute_checksum(len - 2).await;
+
+        if command == Command::SoftRst && rchk == 2645 {
+            trace!(
+                "  Checksum: received={=u16:#06x}; calculated={=u16:#06x} - expected mismatch",
+                rchk,
+                cchk
+            );
+        } else {
+            trace!(
+                "  Checksum: received={=u16:#06x}; calculated={=u16:#06x}",
+                rchk,
+                cchk
+            );
+        }
+
+        // Special case - the `SoftRst` command should always returns `0x0a55` (`2645D`) on success.
+        if (command == Command::SoftRst && rchk != 2645) && rchk != cchk {
+            error!("Checksums don't match");
+            return Status::ErrorBadPackage;
+        } else {
+            return Status::CmdExecComplete;
+        }
     }
 
     async fn debug_vec(&self, buf: &Vec<u8, 128>, out: bool) -> [u8; 128] {
@@ -1235,7 +1270,7 @@ impl<'l> R503<'l> {
         return self.send_command(Command::DeletChar, data).await;
     }
 
-    // Description: to delete all the templates in the Flash library.
+    // Description: Delete all the templates in the Flash library.
     // Input Parameter: none
     // Return Parameter: Confirmation code (1 byte)
     //   Confirmation code=00H: empty success;
@@ -1264,8 +1299,8 @@ impl<'l> R503<'l> {
         return self.send_command(Command::Empty, data).await;
     }
 
-    // Description: Carry out precise matching of templates from CharBuffer1 and CharBuffer2, providing
-    //              matching results.
+    // Description: Carry out precise matching of templates from CharBuffer1 and CharBuffer2,
+    //              providing matching results.
     // Input Parameter: none
     // Return Parameter: Confirmation code (1 byte)，matching score.
     //   Confirmation code=00H: templates of the two buffers are matching;
@@ -1296,8 +1331,8 @@ impl<'l> R503<'l> {
         return self.send_command(Command::Match, data).await;
     }
 
-    // Description: Search the whole finger library for the template that matches the one in CharBuffer1
-    //              or CharBuffer2. When found, PageID will be returned.
+    // Description: Search the whole finger library for the template that matches the one in
+    //              CharBuffer1 or CharBuffer2. When found, PageID will be returned.
     // Input Parameter: (1 + 2 + 2 bytes).
     //   BufferID - character file buffer number (1 byte).
     //   StartPage - searching start address (2 bytes).
@@ -1348,16 +1383,17 @@ impl<'l> R503<'l> {
         return self.send_command(Command::Search, data).await;
     }
 
-    // Description: Detect the finger, record the fingerprint image and store it in ImageBuffer, return
-    //              it and record the successful confirmation code;
+    // Description: Detect the finger, record the fingerprint image and store it in ImageBuffer,
+    //              return it and record the successful confirmation code;
     //              If no finger is detected, return no finger confirmation code(the module responds
-    //              quickly to each instruction,therefore, for continuous detection, cycle processing
-    //              is required, which can be limited to the number of cycles or the total time).
+    //              quickly to each instruction,therefore, for continuous detection, cycle
+    //              processing is required, which can be limited to the number of cycles or the
+    //              total time).
     //              Differences between GetImageEx and the GetImage:
     //                GetImage: Return the confirmation code 0x00 when the image quality is too bad
     //                          (image collection succeeded).
-    //                GetImageEx: Return the confirmation code 0x07 when the image quality is too bad
-    //                            (poor collection quality).
+    //                GetImageEx: Return the confirmation code 0x07 when the image quality is too
+    //                            bad (poor collection quality).
     // Input Parameter: none
     // Return Parameter: Confirmation code (1 byte).
     //   Confirmation code=0x00: read success
