@@ -59,7 +59,7 @@ impl From<u8> for Status {
 
 // These are in Hex order. Further down, they're defined in the order they
 // came in the documentation.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum Command {
     GenImg = 0x01,
@@ -191,7 +191,7 @@ pub struct R503<'l> {
     pub address: u32,
     pub password: u32,
     buffer: Vec<u8, 128>,
-    received: Vec<u8, 128>,
+    params: SystemParameters,
 }
 
 // NOTE: Pins must be consecutive, otherwise it'll segfault!
@@ -240,7 +240,15 @@ impl<'l> R503<'l> {
             address: address,
             password: password,
             buffer: heapless::Vec::new(),
-            received: heapless::Vec::new(),
+            params: SystemParameters {
+                status_register: 0,
+                system_id: 0,
+                library_size: 0,
+                security_level: 0,
+                device_address: 0,
+                data_size: 0,
+                baud_rate: 0
+            }
         }
     }
 
@@ -266,7 +274,7 @@ impl<'l> R503<'l> {
     // SUM	2 bytes		The arithmetic sum of package identifier, package length and all package
     //				contens. Overflowing bits are omitted. high byte is transferred first.
 
-    async fn write(&mut self) -> u8 {
+    async fn write(&mut self) -> Status {
         debug!("write='{:?}'", self.buffer[..]);
         let _ = self.debug_vec(&self.buffer, true).await;
 
@@ -274,27 +282,30 @@ impl<'l> R503<'l> {
             // Give it quarter of a sec for debug output to catch up.
             trace!("  Write disabled by `DISABLE_RW`");
             Timer::after_millis(250).await;
-            return Status::CmdExecComplete as u8; // Fake a success.
+            return Status::CmdExecComplete; // Fake a success.
         }
 
         match self.tx.write(&self.buffer).await {
             Ok(..) => {
                 debug!("Write successful");
-                return Status::CmdExecComplete as u8;
+                return Status::CmdExecComplete;
             }
             Err(e) => {
                 error!("Write error: {:?}", e);
-                return Status::ErrorReceivePackage as u8;
+                return Status::ErrorWriteFlash;
             }
         }
     }
 
-    async fn read(&mut self, timeout: u64) -> Vec<u8, 128> {
+    async fn read_reply(&mut self, timeout: u64) -> Vec<u8, 128> {
         debug!("Reading reply");
 
         let mut buf: [u8; 1] = [0; 1]; // Can only read one byte at a time!
         let mut data: Vec<u8, 128> = heapless::Vec::new(); // Return buffer.
         let mut cnt: u8 = 0; // Keep track of how many packages we've received.
+
+        // Clear buffer before we populate it with the response.
+        self.buffer.clear();
 
         if DISABLE_RW {
             // Just for debugging purposes.
@@ -327,7 +338,7 @@ impl<'l> R503<'l> {
         debug!("Read successful");
 
         // Save the response.
-        self.received = data.clone();
+        self.buffer = data.clone();
 
         return data;
     }
@@ -341,7 +352,7 @@ impl<'l> R503<'l> {
             self.debug_vec(&data, false).await
         );
 
-        // Clear buffer.
+        // Clear buffer before we populate it with the command data.
         self.buffer.clear();
 
         // Setup data package.
@@ -368,7 +379,15 @@ impl<'l> R503<'l> {
         self.write_cmd_bytes(&chk.to_be_bytes()[..]).await; // Checksum
 
         // Send package.
-        self.write().await;
+        match self.write().await {
+            Status::ErrorWriteFlash => {
+                error!("Write failed");
+                return Status::ErrorWriteFlash;
+            }
+            _ => {
+                // Fall through..
+            }
+        }
         Timer::after_millis(250).await; // Give it 1/4s to settle.
 
         // =====
@@ -382,13 +401,14 @@ impl<'l> R503<'l> {
             _ => timeout = 200,
         }
 
-        // Read response. Will save in `self.received`.
-        if self.read(timeout).await.is_empty() {
+        // Read response.
+        if self.read_reply(timeout).await.is_empty() {
+            error!("Read returned empty data");
             return Status::ErrorReceivePackage;
         };
 
         // Parse result and return the Status.
-        return self.parse_result().await;
+        return self.parse_result(command).await;
     }
 
     async fn write_cmd_bytes(&mut self, bytes: &[u8]) {
@@ -405,10 +425,15 @@ impl<'l> R503<'l> {
         return checksum;
     }
 
-    async fn parse_result(&mut self) -> Status {
-        debug!("Parsing reply");
+    async fn parse_result(&mut self, command: Command) -> Status {
+        debug!("Parsing reply ({:?})", self.debug_vec(&self.buffer, false).await);
 
-        if self.received.is_empty() {
+        if self.buffer.is_empty() {
+            return Status::ErrorReceivePackage;
+        }
+
+        if self.buffer[9] != Status::CmdExecComplete as u8 {
+            error!("Bad package (data)");
             return Status::ErrorReceivePackage;
         }
 
@@ -426,7 +451,7 @@ impl<'l> R503<'l> {
 
         // ----
         // START
-        let start = u16::from_be_bytes([self.received[0], self.received[1]]);
+        let start = u16::from_be_bytes([self.buffer[0], self.buffer[1]]);
         if start != Packets::StartCode as u16 {
             error!("Bad package (start)");
             return Status::ErrorReceivePackage;
@@ -435,23 +460,19 @@ impl<'l> R503<'l> {
         }
 
         // ----
-        // ADDRESS
+        // ADDRESS (new)
         let address = u32::from_be_bytes([
-            self.received[2],
-            self.received[3],
-            self.received[4],
-            self.received[5],
+            self.buffer[2],
+            self.buffer[3],
+            self.buffer[4],
+            self.buffer[5],
         ]);
 
-        if self.buffer[9] == Command::SetAdder as u8
-            && self.received[6] == 0x07
-            && self.received[9] == 0x00
-            && address != self.address
-        {
+        if command == Command::SetAdder && address != self.address {
             // Change of address was requested
             // AND the scanner reported all ok
             // AND the address returned does not match the one we used initially.
-            // => Change the global address.
+            // => Update the global address.
             self.address = address;
             info!("Address updated");
         } else {
@@ -465,7 +486,7 @@ impl<'l> R503<'l> {
 
         // ----
         // PACKAGE ID
-        let pid = u8::from_be_bytes([self.received[6]]);
+        let pid = u8::from_be_bytes([self.buffer[6]]);
         if pid != PacketCode::AckPacket as u8 {
             error!("Bad package (pid)");
             return Status::ErrorReceivePackage;
@@ -476,52 +497,62 @@ impl<'l> R503<'l> {
         // ----
         // PACKAGE LENGTH
         // => `pid` (1 byte) + `data` (x bytes) + checksum (2 bytes).
-        let package_len = u16::from_be_bytes([self.received[7], self.received[8]]);
+        let package_len = u16::from_be_bytes([self.buffer[7], self.buffer[8]]);
         debug!("  Package length: {}", package_len);
 
         // DATA
         let data_length: u16 = package_len - 3;
         debug!("  Data length: {}", data_length);
         if data_length > 0 {
-            if self.buffer[10] != Status::CmdExecComplete as u8 {
-                error!("Bad package (data)");
-                return Status::ErrorReceivePackage;
-            }
-
-            if self.buffer[9] == Command::ReadSysPara as u8 {
+            if command == Command::ReadSysPara {
                 debug!("  Checking data package for ReadSysPara");
 
-                let params = SystemParameters {
-                    status_register: u16::from_be_bytes([self.received[10], self.received[11]]),
-                    system_id: u16::from_be_bytes([self.received[12], self.received[13]]),
-                    library_size: u16::from_be_bytes([self.received[14], self.received[15]]),
-                    security_level: u16::from_be_bytes([self.received[16], self.received[17]]),
+                self.params = SystemParameters {
+                    status_register: u16::from_be_bytes([self.buffer[10], self.buffer[11]]),
+                    system_id: u16::from_be_bytes([self.buffer[12], self.buffer[13]]),
+                    library_size: u16::from_be_bytes([self.buffer[14], self.buffer[15]]),
+                    security_level: u16::from_be_bytes([self.buffer[16], self.buffer[17]]),
                     device_address: u32::from_be_bytes([
-                        self.received[18],
-                        self.received[19],
-                        self.received[20],
-                        self.received[21],
+                        self.buffer[18],
+                        self.buffer[19],
+                        self.buffer[20],
+                        self.buffer[21],
                     ]),
-                    data_size: u16::from_be_bytes([self.received[22], self.received[23]]),
-                    baud_rate: u16::from_be_bytes([self.received[24], self.received[25]]),
+                    data_size: u16::from_be_bytes([self.buffer[22], self.buffer[23]]),
+                    baud_rate: u16::from_be_bytes([self.buffer[24], self.buffer[25]]),
                 };
 
+                // TODO: Parse the status register.
+                // Busy:	1 bit.
+                //		1 = System is executing commands
+                //		0 = System is free
+                // Pass:	1 bit.
+                //		1 = Find the matching finger
+                //		0 = Wrong finger
+                // PWD:		1 bit.
+                //		1 = Verified device’s handshaking password
+                // ImgBufStat:	1 bit.
+                //		1 = Image buffer contains valid image
+
                 trace!("  System parameters:");
-                trace!("    Status register: {=u16:#04x}", params.status_register);
-                trace!("    System ID: {=u16:#04x}", params.system_id);
-                trace!("    Library size: {:03}", params.library_size);
+                trace!("    Status register: {=u16:#04x}", self.params.status_register);
+                trace!("    System ID: {=u16:#04x}", self.params.system_id);
+                trace!("    Library size: {:03}", self.params.library_size);
                 trace!(
                     "    Security level: {}",
-                    SecurityLevels::from(params.security_level)
+                    SecurityLevels::from(self.params.security_level)
                 );
-                trace!("    Device address: {=u32:#04x}", params.device_address);
-                trace!("    Data package size: {}", self.translate_data_package_size(params.data_size));
-                trace!("    Baud rate: {}", params.baud_rate * 9600); // Value in increments of 9600.
+                trace!("    Device address: {=u32:#08x}", self.params.device_address);
+                trace!("    Data package size: {}", self.translate_data_package_size(self.params.data_size));
+                trace!("    Baud rate: {}", self.params.baud_rate * 9600); // Value in increments of 9600.
+
+                let chk = self.compute_checksum().await;
+                trace!("    Checksum: {}", chk);
             }
         }
 
         // RETURN: Confirmation Code.
-        return self.received[9].into();
+        return Status::CmdExecComplete;
     }
 
     async fn debug_vec(&self, buf: &Vec<u8, 128>, out: bool) -> [u8; 128] {
