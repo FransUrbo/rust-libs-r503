@@ -437,7 +437,10 @@ impl<'l> R503<'l> {
             return Status::ErrorReceivePackage;
         }
 
-        if self.buffer[9] != Status::CmdExecComplete as u8 {
+        if command == Command::Search && self.buffer[9] == Status::ErrorNoMatchingFinger as u8 {
+            // No need for a debug output, it's down later in the chain.
+            return Status::ErrorNoMatchingFinger;
+        } else if self.buffer[9] != Status::CmdExecComplete as u8 {
             error!("Bad package (data)");
             return Status::ErrorReceivePackage;
         }
