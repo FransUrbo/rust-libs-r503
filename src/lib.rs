@@ -19,7 +19,7 @@ use heapless::Vec;
 
 const DISABLE_RW: bool = false; // Disable the read and write functions.
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Format)]
 #[repr(u8)]
 pub enum Status {
     CmdExecComplete = 0x00,
@@ -435,14 +435,9 @@ impl<'l> R503<'l> {
 
         if self.buffer.is_empty() {
             return Status::ErrorReceivePackage;
-        }
-
-        if command == Command::Search && self.buffer[9] == Status::ErrorNoMatchingFinger as u8 {
-            // No need for a debug output, it's down later in the chain.
-            return Status::ErrorNoMatchingFinger;
         } else if self.buffer[9] != Status::CmdExecComplete as u8 {
-            error!("Bad package (data)");
-            return Status::ErrorReceivePackage;
+            debug!("Command did not complete: {:?}", Status::from(self.buffer[9]));
+            return Status::from(self.buffer[9]);
         }
 
         // Known values:
@@ -2287,7 +2282,7 @@ impl<'l> R503<'l> {
                     info!("Scanned and saved the finger (#1)");
 
                     self.Wrapper_AuraSet_Off().await;
-                    Timer::after_secs(3).await;
+                    Timer::after_secs(1).await;
 
                     // =====
                     // 3) Get the fingerprint - #2.
