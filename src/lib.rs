@@ -204,6 +204,7 @@ pub struct R503<'l> {
     buffer: Vec<u8, REPLY_DATA_SIZE>,
     params: SystemParameters,
     prodinfo: ProductInfo,
+    templatenum: u16
 }
 
 // Channel => DMA_CH0/DMA_CH1
@@ -296,6 +297,8 @@ impl<'l> R503<'l> {
                 tmpl_size: 0,
                 tmpl_total: 0,
             },
+
+            templatenum: 0
         }
     }
 
@@ -558,18 +561,6 @@ impl<'l> R503<'l> {
                     baud_rate: u16::from_be_bytes(self.buffer[24..26].try_into().unwrap())
                 };
 
-                // TODO: Parse the status register.
-                // Busy:	1 bit.
-                //		1 = System is executing commands
-                //		0 = System is free
-                // Pass:	1 bit.
-                //		1 = Find the matching finger
-                //		0 = Wrong finger
-                // PWD:		1 bit.
-                //		1 = Verified device’s handshaking password
-                // ImgBufStat:	1 bit.
-                //		1 = Image buffer contains valid image
-
                 trace!("  System parameters:");
                 trace!(
                     "    Status register: {=u16:#06x}",
@@ -614,6 +605,10 @@ impl<'l> R503<'l> {
                 trace!("    FPS Height: {=u16:x}", self.prodinfo.fps_height);
                 trace!("    Template size: {=u16:x}", self.prodinfo.tmpl_size);
                 trace!("    Templates total: {=u16:x}", self.prodinfo.tmpl_total);
+            } else if command == Command::TempleteNum {
+                debug!("  Checking template number for TempleteNum");
+                self.templatenum = u16::from_be_bytes(self.buffer[10..12].try_into().unwrap());
+                trace!("  Number of templates: {=u16:x}", self.templatenum);
             }
         }
 
@@ -961,8 +956,6 @@ impl<'l> R503<'l> {
     /// * Data                    2 bytes
     ///   - Template Number       2 byte
     /// * Checksum                2 bytes        Sum                (see top)
-    ///
-    /// **TODO**: Return `Status` and ... (2 bytes - `[u8, 2]`)??
     pub async fn TempleteNum(&mut self) -> Status {
         info!("COMMAND: Read current valid template number");
 
@@ -2482,6 +2475,28 @@ impl<'l> R503<'l> {
         //         return false;
         //     }
         // }
+
+        match self.TempleteNum().await {
+            Status::CmdExecComplete => {
+                info!("Template number read");
+                // Fall through..
+            }
+            Status::ErrorReceivePackage => {
+                error!("Package receive: Wrapper_Setup()/TempleteNum()");
+
+                self.Wrapper_AuraSet_BlinkinRedMedium().await;
+                return false;
+            }
+            stat => {
+                error!(
+                    "Unknown return code='{=u8:#04x}': Wrapper_Setup()/TempleteNum()",
+                    stat as u8
+                );
+
+                self.Wrapper_AuraSet_Off().await;
+                return false;
+            }
+        }
 
         return true;
     }
