@@ -87,11 +87,18 @@ jobs:
       - name: Build ${{ matrix.target }}
         run: cargo build --verbose --profile ${{ matrix.target }}
 
+      - name: Generate checksums
+        run: |
+          set -- $(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | [.name, .version] | @tsv')
+          name="${1}"; version="${2}"
+          sha256sum target/thumbv6m-none-eabi/${{ matrix.target == 'dev' && 'debug' || matrix.target }}/lib${name}.rlib > target/thumbv6m-none-eabi/${{ matrix.target == 'dev' && 'debug' || matrix.target }}/lib${name}.rlib.sha256
+
       - name: Archive artifacts
         uses: actions/upload-artifact@v4
         with:
           name: artifacts-${{ matrix.target }}
           path: |
             target/thumbv6m-none-eabi/${{ matrix.target == 'dev' && 'debug' || matrix.target }}/libr503.rlib
+            target/thumbv6m-none-eabi/${{ matrix.target == 'dev' && 'debug' || matrix.target }}/libr503.rlib.sha256
             _check-package.log
             _check-fmt.log
