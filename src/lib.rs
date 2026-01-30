@@ -202,9 +202,9 @@ pub struct R503<'l> {
     pub address: u32,
     pub password: u32,
     buffer: Vec<u8, REPLY_DATA_SIZE>,
-    params: SystemParameters,
-    prodinfo: ProductInfo,
-    templatenum: u16
+    pub params: SystemParameters,
+    pub prodinfo: ProductInfo,
+    pub templatenum: u16
 }
 
 // Channel => DMA_CH0/DMA_CH1
