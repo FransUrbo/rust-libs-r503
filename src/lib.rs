@@ -347,14 +347,14 @@ impl<'l> R503<'l> {
         // Loop until we can get the package length (byte 8 and 9).
         loop {
             if cnt == 9 {
-                pkg_len = 6 + u16::from_be_bytes([data[7], data[8]]) + 2;
+                pkg_len = 6 + u16::from_be_bytes(data[7..9].try_into().unwrap()) + 2;
                 trace!(
                     "  Actual package length: {} (2+4+{}+{}+2={}; read={})",
                     pkg_len,
                     data[7],
                     data[8],
                     pkg_len,
-                    u16::from_be_bytes([data[7], data[8]])
+                    u16::from_be_bytes(data[7..9].try_into().unwrap())
                 );
             }
 
@@ -495,7 +495,7 @@ impl<'l> R503<'l> {
 
         // ----
         // START
-        let start = u16::from_be_bytes([self.buffer[0], self.buffer[1]]);
+        let start = u16::from_be_bytes(self.buffer[0..2].try_into().unwrap());
         if start != Packets::StartCode as u16 {
             error!("Bad package (start)");
             return Status::ErrorReceivePackage;
@@ -505,12 +505,7 @@ impl<'l> R503<'l> {
 
         // ----
         // ADDRESS (new)
-        let address = u32::from_be_bytes([
-            self.buffer[2],
-            self.buffer[3],
-            self.buffer[4],
-            self.buffer[5],
-        ]);
+        let address = u32::from_be_bytes(self.buffer[2..6].try_into().unwrap());
 
         if command == Command::SetAdder && address != self.address {
             // Change of address was requested
@@ -541,7 +536,7 @@ impl<'l> R503<'l> {
         // ----
         // PACKAGE LENGTH
         // => `pid` (1 byte) + `data` (x bytes) + `checksum` (2 bytes).
-        let package_len = u16::from_be_bytes([self.buffer[7], self.buffer[8]]);
+        let package_len = u16::from_be_bytes(self.buffer[7..9].try_into().unwrap());
         debug!("  Package length: {}", package_len);
 
         // ----
@@ -554,18 +549,13 @@ impl<'l> R503<'l> {
             if command == Command::ReadSysPara {
                 debug!("  Checking data package for ReadSysPara");
                 self.params = SystemParameters {
-                    status_register: u16::from_be_bytes([self.buffer[10], self.buffer[11]]),
-                    system_id: u16::from_be_bytes([self.buffer[12], self.buffer[13]]),
-                    library_size: u16::from_be_bytes([self.buffer[14], self.buffer[15]]),
-                    security_level: u16::from_be_bytes([self.buffer[16], self.buffer[17]]),
-                    device_address: u32::from_be_bytes([
-                        self.buffer[18],
-                        self.buffer[19],
-                        self.buffer[20],
-                        self.buffer[21],
-                    ]),
-                    data_size: u16::from_be_bytes([self.buffer[22], self.buffer[23]]),
-                    baud_rate: u16::from_be_bytes([self.buffer[24], self.buffer[25]]),
+                    status_register: u16::from_be_bytes(self.buffer[10..12].try_into().unwrap()),
+                    system_id: u16::from_be_bytes(self.buffer[12..14].try_into().unwrap()),
+                    library_size: u16::from_be_bytes(self.buffer[14..16].try_into().unwrap()),
+                    security_level: u16::from_be_bytes(self.buffer[16..18].try_into().unwrap()),
+                    device_address: u32::from_be_bytes(self.buffer[18..22].try_into().unwrap()),
+                    data_size: u16::from_be_bytes(self.buffer[22..24].try_into().unwrap()),
+                    baud_rate: u16::from_be_bytes(self.buffer[24..26].try_into().unwrap())
                 };
 
                 // TODO: Parse the status register.
@@ -603,55 +593,15 @@ impl<'l> R503<'l> {
             } else if command == Command::ReadProdInfo {
                 debug!("  Checking product information for ReadProdInfo");
                 self.prodinfo = ProductInfo {
-                    fpm_model: u128::from_be_bytes([
-                        self.buffer[10],
-                        self.buffer[11],
-                        self.buffer[12],
-                        self.buffer[13],
-                        self.buffer[14],
-                        self.buffer[15],
-                        self.buffer[16],
-                        self.buffer[17],
-                        self.buffer[18],
-                        self.buffer[19],
-                        self.buffer[20],
-                        self.buffer[21],
-                        self.buffer[22],
-                        self.buffer[23],
-                        self.buffer[24],
-                        self.buffer[25],
-                    ]),
-                    batch_nr: u32::from_be_bytes([
-                        self.buffer[26],
-                        self.buffer[27],
-                        self.buffer[28],
-                        self.buffer[29],
-                    ]),
-                    serial_nr: u64::from_be_bytes([
-                        self.buffer[30],
-                        self.buffer[31],
-                        self.buffer[32],
-                        self.buffer[33],
-                        self.buffer[34],
-                        self.buffer[35],
-                        self.buffer[36],
-                        self.buffer[37],
-                    ]),
-                    hw_nr: u16::from_be_bytes([self.buffer[38], self.buffer[39]]),
-                    fps_model: u64::from_be_bytes([
-                        self.buffer[40],
-                        self.buffer[41],
-                        self.buffer[42],
-                        self.buffer[43],
-                        self.buffer[44],
-                        self.buffer[45],
-                        self.buffer[46],
-                        self.buffer[47],
-                    ]),
-                    fps_width: u16::from_be_bytes([self.buffer[48], self.buffer[49]]),
-                    fps_height: u16::from_be_bytes([self.buffer[50], self.buffer[51]]),
-                    tmpl_size: u16::from_be_bytes([self.buffer[52], self.buffer[53]]),
-                    tmpl_total: u16::from_be_bytes([self.buffer[54], self.buffer[55]]),
+                    fpm_model: u128::from_be_bytes(self.buffer[10..26].try_into().unwrap()),
+                    batch_nr: u32::from_be_bytes(self.buffer[26..30].try_into().unwrap()),
+                    serial_nr: u64::from_be_bytes(self.buffer[30..38].try_into().unwrap()),
+                    hw_nr: u16::from_be_bytes(self.buffer[38..40].try_into().unwrap()),
+                    fps_model: u64::from_be_bytes(self.buffer[40..48].try_into().unwrap()),
+                    fps_width: u16::from_be_bytes(self.buffer[48..50].try_into().unwrap()),
+                    fps_height: u16::from_be_bytes(self.buffer[50..52].try_into().unwrap()),
+                    tmpl_size: u16::from_be_bytes(self.buffer[52..53].try_into().unwrap()),
+                    tmpl_total: u16::from_be_bytes(self.buffer[54..56].try_into().unwrap())
                 };
 
                 trace!("  Product information:");
