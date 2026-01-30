@@ -19,7 +19,7 @@ use heapless::Vec;
 
 const REPLY_DATA_SIZE: usize = 1024; // Some commands *really* return some large data sets!! :)
 
-#[derive(Copy, Clone, Format)]
+#[derive(Copy, Clone, Format, PartialEq)]
 #[repr(u8)]
 pub enum Status {
     CmdExecComplete = 0x00,
@@ -1523,8 +1523,6 @@ impl<'l> R503<'l> {
     ///   - PageID                2 bytes
     ///   - MatchScore            2 bytes
     /// * Checksum                2 bytes        Sum                (see top)
-    ///
-    /// **TODO**: Return `Status`, PageID (2 bytes - `[u8, 2]`) and MatchScore (2 bytes - `[u8, 2]`)??
     pub async fn Search(&mut self, buff: u8, start: u16, page: u16) -> Status {
         info!("COMMAND: Search fingerpringt library for template: {=u8:#04x}H/{=u16:#06x}H/{=u16:#06x}H",
         buff, start, page);
@@ -1538,7 +1536,16 @@ impl<'l> R503<'l> {
         let split_page: [u8; 2] = page.to_be_bytes();
         let _ = data.extend(split_page.iter().map(|&i| i));
 
-        return self.send_command(Command::Search, data).await;
+        let res = self.send_command(Command::Search, data).await;
+
+        // Now parse the result.
+        if res == Status::CmdExecComplete {
+            let page_id = u16::from_be_bytes(self.buffer[10..12].try_into().unwrap());
+            let match_score = u16::from_be_bytes(self.buffer[12..14].try_into().unwrap());
+            debug!("Search results: PageID={}; MatchScore={}", page_id, match_score);
+        }
+
+        return res;
     }
 
     /// # Description
