@@ -7,17 +7,17 @@ use embassy_rp::dma::Channel;
 use embassy_rp::gpio::{AnyPin, Input, Level, Pull}; // For the wakeup.
 use embassy_rp::interrupt::typelevel::Binding;
 use embassy_rp::uart::{
-    Async, Config, Instance, InterruptHandler, RxPin, TxPin, Uart, UartRx, UartTx,
+    Blocking, Config, Instance, InterruptHandler, RxPin, TxPin, Uart, UartRx, UartTx,
 };
 use embassy_rp::Peri;
-use embassy_time::{with_timeout, Duration, Timer};
+use embassy_time::Timer;
 
 use core::mem::transmute;
 use heapless::Vec;
 
 // =====
 
-const DISABLE_RW: bool = false; // Disable the read and write functions.
+const REPLY_DATA_SIZE: usize = 1024; // Some commands *really* return some large data sets!! :)
 
 #[derive(Copy, Clone, Format)]
 #[repr(u8)]
@@ -182,15 +182,28 @@ struct SystemParameters {
     baud_rate: u16,
 }
 
+struct ProductInfo {
+    fpm_model: u128,
+    batch_nr: u32,
+    serial_nr: u64,
+    hw_nr: u16,
+    fps_model: u64,
+    fps_width: u16,
+    fps_height: u16,
+    tmpl_size: u16,
+    tmpl_total: u16,
+}
+
 pub struct R503<'l> {
-    tx: UartTx<'l, Async>,
-    rx: UartRx<'l, Async>,
+    tx: UartTx<'l, Blocking>,
+    rx: UartRx<'l, Blocking>,
     wakeup: Input<'l>,
 
     pub address: u32,
     pub password: u32,
-    buffer: Vec<u8, 128>,
+    buffer: Vec<u8, REPLY_DATA_SIZE>,
     params: SystemParameters,
+    prodinfo: ProductInfo,
 }
 
 // Channel => DMA_CH0/DMA_CH1
@@ -205,14 +218,24 @@ impl<'l> R503<'l> {
     //! | DATA    | -       | It can be commands, data, command’s parameters, acknowledge result, etc.<br>(fingerprint character value, template are all deemed as data).
     //! | SUM     | 2 bytes | The arithmetic sum of package identifier, package length and all package contens. Overflowing bits are omitted. High byte is transferred first.
     //!
-    //! NOTE: Pins must be consecutive, otherwise it'll segfault!
+    //! * Header: Start + Address (6 bytes).
+    //! * Package: Package ID + Package Length + Data (3 + x bytes).
+    //! * Length: Calculated on Package ID and Data.
+    //!   * Actually, full length, is:
+    //!     + Start
+    //!     + Address
+    //!     + Package Length (Package ID + Data)
+    //!     + Checksum
+    //!     = 11 bytes (plus length of data).
+    //! * Checksum: Calculated on Package ID + Package Length + Data.<br>
+    //! **NOTE**: Pins must be consecutive, otherwise it'll segfault!
     pub fn new<T: Instance>(
         uart: Peri<'l, T>,
-        irqs: impl Binding<<T as embassy_rp::uart::Instance>::Interrupt, InterruptHandler<T>>,
+        _irqs: impl Binding<<T as embassy_rp::uart::Instance>::Interrupt, InterruptHandler<T>>,
         pin_send: Peri<'l, impl TxPin<T>>,
-        pin_send_dma: Peri<'l, impl Channel>,
+        _pin_send_dma: Peri<'l, impl Channel>,
         pin_receive: Peri<'l, impl RxPin<T>>,
-        pin_receive_dma: Peri<'l, impl Channel>,
+        _pin_receive_dma: Peri<'l, impl Channel>,
         pin_wakeup: Peri<'l, AnyPin>,
     ) -> Self {
         // Set default passwords.
@@ -224,13 +247,13 @@ impl<'l> R503<'l> {
         config.baudrate = 57600;
 
         // Initialize the fingerprint scanner.
-        let uart = Uart::new(
+        let uart = Uart::new_blocking(
             uart,
             pin_send,
             pin_receive,
-            irqs,
-            pin_send_dma,
-            pin_receive_dma,
+            // irqs,
+            // pin_send_dma,
+            // pin_receive_dma,
             config,
         );
         let (tx, rx) = uart.split();
@@ -246,9 +269,12 @@ impl<'l> R503<'l> {
             tx: tx,
             rx: rx,
             wakeup: wakeup,
+
             address: address,
             password: password,
+
             buffer: heapless::Vec::new(),
+
             params: SystemParameters {
                 status_register: 0,
                 system_id: 0,
@@ -258,23 +284,29 @@ impl<'l> R503<'l> {
                 data_size: 0,
                 baud_rate: 0,
             },
+
+            prodinfo: ProductInfo {
+                fpm_model: 0,
+                batch_nr: 0,
+                serial_nr: 0,
+                hw_nr: 0,
+                fps_model: 0,
+                fps_width: 0,
+                fps_height: 0,
+                tmpl_size: 0,
+                tmpl_total: 0,
+            },
         }
     }
 
     // ===== Internal functions
 
+    /// Low level write - write the data in `self.buffer`, return `Status`.
     async fn write(&mut self) -> Status {
         debug!("write='{:?}'", self.buffer[..]);
         let _ = self.debug_vec(&self.buffer, true).await;
 
-        if DISABLE_RW {
-            // Give it quarter of a sec for debug output to catch up.
-            trace!("  Write disabled by `DISABLE_RW`");
-            Timer::after_millis(250).await;
-            return Status::CmdExecComplete; // Fake a success.
-        }
-
-        match self.tx.write(&self.buffer).await {
+        match self.tx.blocking_write(&self.buffer) {
             Ok(..) => {
                 debug!("Write successful");
                 return Status::CmdExecComplete;
@@ -286,35 +318,55 @@ impl<'l> R503<'l> {
         }
     }
 
-    async fn read_reply(&mut self, timeout: u64) -> Vec<u8, 128> {
+    /// Low level read - read one byte, and return it as is.
+    async fn read(&mut self) -> [u8; 1] {
+        let mut buf: [u8; 1] = [0; 1]; // Can only read one byte at a time!
+
+        match self.rx.blocking_read(&mut buf) {
+            Ok(_) => {
+                // Extract and save read byte.
+                return buf;
+            }
+            Err(_) => return [0; 1], // TimeoutError -> Ignore.
+        }
+    }
+
+    /// Read the full reply from the device.
+    async fn read_reply(&mut self, command: Command) -> Vec<u8, REPLY_DATA_SIZE> {
         debug!("Reading reply");
 
-        let mut buf: [u8; 1] = [0; 1]; // Can only read one byte at a time!
-        let mut data: Vec<u8, 128> = heapless::Vec::new(); // Return buffer.
-        let mut cnt: u8 = 0; // Keep track of how many packages we've received.
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new(); // Return buffer.
+
+        // Read *at least* 9 bytes - just so we can get the actual length of the package.
+        let mut pkg_len: u16 = 9;
+        let mut cnt: u16 = 0; // Keep track of how many packages we've received.
 
         // Clear buffer before we populate it with the response.
         self.buffer.clear();
 
-        if DISABLE_RW {
-            // Just for debugging purposes.
-            // Give it quarter of a sec for debug output to catch up.
-            trace!("  Read disabled by `DISABLE_RW`");
-            Timer::after_millis(250).await;
-
-            return data; // Fake a success.
-        }
-
+        // Loop until we can get the package length (byte 8 and 9).
         loop {
-            // Read byte.
-            match with_timeout(Duration::from_millis(timeout), self.rx.read(&mut buf)).await {
-                Ok(..) => {
-                    // Extract and save read byte.
-                    trace!("  r({:03})='{=u8:#04x}H' ({:03}D)", cnt, buf[0], buf[0]);
-                    let _ = data.push(buf[0]).unwrap();
-                }
-                Err(..) => break, // TimeoutError -> Ignore.
+            if cnt == 9 {
+                pkg_len = 6 + u16::from_be_bytes([data[7], data[8]]) + 2;
+                trace!(
+                    "  Actual package length: {} (2+4+{}+{}+2={}; read={})",
+                    pkg_len,
+                    data[7],
+                    data[8],
+                    pkg_len,
+                    u16::from_be_bytes([data[7], data[8]])
+                );
             }
+
+            // Want to make sure we read at least the last one.
+            if cnt > pkg_len {
+                break;
+            }
+
+            // Read byte.
+            let buf: [u8; 1] = self.read().await;
+            trace!("  r({:03})='{=u8:#04x}H' ({:03}D)", cnt, buf[0], buf[0]);
+            let _ = data.push(buf[0]).unwrap();
 
             cnt = cnt + 1;
         }
@@ -324,17 +376,34 @@ impl<'l> R503<'l> {
             error!("Empty response - no data");
             return data;
         }
-        debug!("Read successful");
+
+        // The SoftRst command will, after successful package send, send `0x55H` as a handshake.
+        // So we need to read ONE more byte here before we leave.
+        if command == Command::SoftRst {
+            let buf: [u8; 1] = self.read().await;
+            trace!(
+                "  R({:03})='{=u8:#04x}H' ({:03}D) - SoftRst response",
+                cnt,
+                buf[0],
+                buf[0]
+            );
+
+            if buf[0] == 0x55 {
+                trace!("  Successful reset detected");
+            } else {
+                error!("Unsuccessful reset detected");
+            }
+        }
 
         // Save the response.
+        debug!("Read successful");
         self.buffer = data.clone();
 
         return data;
     }
 
-    // -----
-
-    async fn send_command(&mut self, command: Command, data: Vec<u8, 128>) -> Status {
+    /// Format a command package and write it to the device with `self.write`.
+    async fn send_command(&mut self, command: Command, data: Vec<u8, REPLY_DATA_SIZE>) -> Status {
         debug!(
             "Sending command {=u8:#04x}H ({:?})",
             command as u8,
@@ -378,19 +447,8 @@ impl<'l> R503<'l> {
         }
         Timer::after_millis(250).await; // Give it 1/4s to settle.
 
-        // =====
-
-        // Some commands take longer to start responding. So give them a bit more time.
-        // NOTE: Need to update this as I start testing more commands.
-        let timeout: u64;
-        match command {
-            Command::GenImg => timeout = 500,
-            Command::Img2Tz => timeout = 1000,
-            _ => timeout = 200,
-        }
-
         // Read response.
-        if self.read_reply(timeout).await.is_empty() {
+        if self.read_reply(command).await.is_empty() {
             error!("Read returned empty data");
             return Status::ErrorReceivePackage;
         };
@@ -403,19 +461,22 @@ impl<'l> R503<'l> {
         let _ = self.buffer.extend_from_slice(bytes);
     }
 
-    // We calculate the checksum on Package ID, Package Length and Data.
-    // This is always starting at byte 6. How far we read in the buffer
-    // depends on if it's a write or a read - the read already HAVE the
-    // checksum in it..
+    /// We calculate the checksum on Package ID, Package Length and Data.
+    /// This is always starting at byte 6. How far we read in the buffer
+    /// depends on if it's a write or a read - the read already HAVE the
+    /// checksum in it..
     async fn compute_checksum(&self, check_end: usize) -> u16 {
-        let mut checksum = 0u16;
+        let mut checksum: u16 = 0;
         let checked_bytes = &self.buffer[6..check_end];
+
         for byte in checked_bytes {
             checksum += (*byte) as u16;
         }
+
         return checksum;
     }
 
+    /// Parse the result of the response from the device.
     async fn parse_result(&mut self, command: Command) -> Status {
         debug!(
             "Parsing reply ({:?})",
@@ -425,21 +486,12 @@ impl<'l> R503<'l> {
         if self.buffer.is_empty() {
             return Status::ErrorReceivePackage;
         } else if self.buffer[9] != Status::CmdExecComplete as u8 {
-            debug!("Command did not complete: {:?}", Status::from(self.buffer[9]));
+            debug!(
+                "Command did not complete: {:?}",
+                Status::from(self.buffer[9])
+            );
             return Status::from(self.buffer[9]);
         }
-
-        // Known values:
-        //   1) Byte  0- 1 START code				- `0xFE01`.
-        //   2) Byte  2- 5 ADDRESS				- `0xFFFFFFFF`.
-        //   3) Byte     6 PID					- `0x07H`.
-        //   4) Byte  7- 8 Package length			- `0x0013`.
-        //
-        // TODO: Depends on DATA returned:
-        //   5) Byte 10+   DATA					- `0x00`.
-        //                 could also be ConfirmationCode	- `0x00`.
-        //
-        //   6) Byte 11-12 Checksum				- `0x000a`.
 
         // ----
         // START
@@ -488,17 +540,19 @@ impl<'l> R503<'l> {
 
         // ----
         // PACKAGE LENGTH
-        // => `pid` (1 byte) + `data` (x bytes) + checksum (2 bytes).
+        // => `pid` (1 byte) + `data` (x bytes) + `checksum` (2 bytes).
         let package_len = u16::from_be_bytes([self.buffer[7], self.buffer[8]]);
         debug!("  Package length: {}", package_len);
 
+        // ----
         // DATA
         let data_length: u16 = package_len - 3;
         debug!("  Data length: {}", data_length);
         if data_length > 0 {
+            // This is where it gets a bit ugly..
+
             if command == Command::ReadSysPara {
                 debug!("  Checking data package for ReadSysPara");
-
                 self.params = SystemParameters {
                     status_register: u16::from_be_bytes([self.buffer[10], self.buffer[11]]),
                     system_id: u16::from_be_bytes([self.buffer[12], self.buffer[13]]),
@@ -542,20 +596,95 @@ impl<'l> R503<'l> {
                     self.params.device_address
                 );
                 trace!(
-                    "    Data package size: {}",
+                    "    Max data package length: {}",
                     self.translate_data_package_size(self.params.data_size)
                 );
                 trace!("    Baud rate: {}", self.params.baud_rate * 9600); // Value in increments of 9600.
+            } else if command == Command::ReadProdInfo {
+                debug!("  Checking product information for ReadProdInfo");
+                self.prodinfo = ProductInfo {
+                    fpm_model: u128::from_be_bytes([
+                        self.buffer[10],
+                        self.buffer[11],
+                        self.buffer[12],
+                        self.buffer[13],
+                        self.buffer[14],
+                        self.buffer[15],
+                        self.buffer[16],
+                        self.buffer[17],
+                        self.buffer[18],
+                        self.buffer[19],
+                        self.buffer[20],
+                        self.buffer[21],
+                        self.buffer[22],
+                        self.buffer[23],
+                        self.buffer[24],
+                        self.buffer[25],
+                    ]),
+                    batch_nr: u32::from_be_bytes([
+                        self.buffer[26],
+                        self.buffer[27],
+                        self.buffer[28],
+                        self.buffer[29],
+                    ]),
+                    serial_nr: u64::from_be_bytes([
+                        self.buffer[30],
+                        self.buffer[31],
+                        self.buffer[32],
+                        self.buffer[33],
+                        self.buffer[34],
+                        self.buffer[35],
+                        self.buffer[36],
+                        self.buffer[37],
+                    ]),
+                    hw_nr: u16::from_be_bytes([self.buffer[38], self.buffer[39]]),
+                    fps_model: u64::from_be_bytes([
+                        self.buffer[40],
+                        self.buffer[41],
+                        self.buffer[42],
+                        self.buffer[43],
+                        self.buffer[44],
+                        self.buffer[45],
+                        self.buffer[46],
+                        self.buffer[47],
+                    ]),
+                    fps_width: u16::from_be_bytes([self.buffer[48], self.buffer[49]]),
+                    fps_height: u16::from_be_bytes([self.buffer[50], self.buffer[51]]),
+                    tmpl_size: u16::from_be_bytes([self.buffer[52], self.buffer[53]]),
+                    tmpl_total: u16::from_be_bytes([self.buffer[54], self.buffer[55]]),
+                };
+
+                trace!("  Product information:");
+                trace!("    FPM Model: {=u128:x}", self.prodinfo.fpm_model);
+                trace!("    Batch nr: {=u32:x}", self.prodinfo.batch_nr);
+                trace!("    Serial nr: {=u64:x}", self.prodinfo.serial_nr);
+                trace!("    Hardware nr: {=u16:x}", self.prodinfo.hw_nr);
+                trace!("    FPS Model: {=u64:x}", self.prodinfo.fps_model);
+                trace!("    FPS Width: {=u16:x}", self.prodinfo.fps_width);
+                trace!("    FPS Height: {=u16:x}", self.prodinfo.fps_height);
+                trace!("    Template size: {=u16:x}", self.prodinfo.tmpl_size);
+                trace!("    Templates total: {=u16:x}", self.prodinfo.tmpl_total);
             }
         }
 
-        // Checksum is always the last two bytes.
+        // ----
+        // CHECKSUM
+        // Retrieve and calculate the checksum.
+        // Header (2 bytes) + Address (4 bytes)
         let len = self.buffer.len();
         let rchk: u16 = u16::from_be_bytes([self.buffer[len - 2], self.buffer[len - 1]]);
         let cchk = self.compute_checksum(len - 2).await;
+        trace!(
+            "  Package length: {}(read={}), Read checksum: {}; Computed checksum: {}",
+            len,
+            package_len,
+            rchk,
+            cchk
+        );
 
-        // Special case - the `SoftRst` command should always returns `0x0a55` (`2645D`) on success.
-        if (command == Command::SoftRst && rchk == 2645) || rchk == cchk {
+        // ----
+        // Return success or fail.
+        if rchk == cchk {
             debug!("  Checksum is ok");
             return Status::CmdExecComplete;
         } else {
@@ -564,8 +693,9 @@ impl<'l> R503<'l> {
         }
     }
 
-    async fn debug_vec(&self, buf: &Vec<u8, 128>, out: bool) -> [u8; 128] {
-        let mut a: [u8; 128] = [0; 128];
+    // Go through our Vec and output it, if or when needed.
+    async fn debug_vec(&self, buf: &Vec<u8, REPLY_DATA_SIZE>, out: bool) -> [u8; REPLY_DATA_SIZE] {
+        let mut a: [u8; REPLY_DATA_SIZE] = [0; REPLY_DATA_SIZE];
         let mut i = 0;
 
         for x in buf {
@@ -579,6 +709,8 @@ impl<'l> R503<'l> {
         return a;
     }
 
+    // Translate the system parameters max data package length to string.
+    // TODO: Would be nice with an enum or something here..
     fn translate_data_package_size(&self, size: u16) -> &'static str {
         let val: &str;
         match size {
@@ -623,7 +755,7 @@ impl<'l> R503<'l> {
     pub async fn VfyPwd(&mut self, pass: u32) -> Status {
         info!("COMMAND: Checking password: {=u32:#010x}H", pass);
 
-        let mut data: Vec<u8, 128> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
         let split: [u8; 4] = pass.to_be_bytes();
         data.extend(split.iter().map(|&i| i));
 
@@ -659,7 +791,7 @@ impl<'l> R503<'l> {
     pub async fn SetPwd(&mut self, pass: u32) -> Status {
         info!("COMMAND: Setting module password: {=u32:#010x}H", pass);
 
-        let mut data: Vec<u8, 128> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
         let split: [u8; 4] = pass.to_be_bytes();
         data.extend(split.iter().map(|&i| i));
 
@@ -702,7 +834,7 @@ impl<'l> R503<'l> {
     pub async fn SetAdder(&mut self, addr: u32) -> Status {
         info!("COMMAND: Setting module address: {=u32:#010x}", addr);
 
-        let mut data: Vec<u8, 128> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
         let split: [u8; 4] = addr.to_be_bytes();
         data.extend(split.iter().map(|&i| i));
 
@@ -743,7 +875,7 @@ impl<'l> R503<'l> {
             param, content
         );
 
-        let mut data: Vec<u8, 128> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
         let _ = data.push(param);
         let _ = data.push(content);
 
@@ -783,7 +915,7 @@ impl<'l> R503<'l> {
     pub async fn Control(&mut self, ctrl: u8) -> Status {
         info!("COMMAND: Control: {=u8:#04x}H", ctrl);
 
-        let mut data: Vec<u8, 128> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
         let _ = data.push(ctrl);
 
         return self.send_command(Command::Control, data).await;
@@ -813,14 +945,42 @@ impl<'l> R503<'l> {
     /// * Package Length          2 byte         3+16
     /// * Confirmation code       1 byte         xx                 (see above)
     /// * Data                   16 bytes
-    ///   - Basic Param List     16 byte
+    ///   - Basic Param List     16 byte                            (see below)
     /// * Checksum                2 bytes        Sum                (see top)
+    /// # System parameters
+    /// | Name                   | Description                        | Offset (word) | Size (word) | Size (byte) |
+    /// | :---                   | :---                               | :---:         | :---:       | :---:       |
+    /// | Status register        | Contents of system status register |     0         |       1     |      2      |
+    /// | System identifier code | Fixed value: 0x0009                |     1         |       1     |      2      |
+    /// | Finger library size    | Finger library size                |     2         |       1     |      2      |
+    /// | Security level         | Security level (1, 2, 3, 4, 5)     |     3         |       1     |      2      |
+    /// | Device address         | 32-bit device address              |     4         |       2     |      4      |
+    /// | Data packet size       | Size code (0, 1, 2, 3)             |     6         |       1     |      2      |
+    /// | Baud settings          | N (baud = 9600*N bps)              |     7         |       1     |      2      |
     ///
-    /// **TODO**: Return `Status` and ... (16 bytes - `[u8, 16]`)??
+    /// | Bit Num     |   15 4   |     3      |  2  |  1   |  0   |
+    /// | :---        |   :--:   |    :-:     | :-: | :-:  | :-:  |
+    /// | Description | Reserved | ImgBufStat | PWD | Pass | Busy |
+    ///
+    /// * Busy: 1 bit
+    ///   - 1: System is executing commands
+    ///   - 0: System is free
+    /// * Pass: 1 bit
+    ///   - 1: Find the matching finger
+    ///   - 0: Wrong finger
+    /// * PWD: 1 bit
+    ///   - 1: Verified device’s handshaking password
+    /// * ImgBufStat: 1 bit
+    ///   - 1: Image buffer contains valid image.
+    ///
+    /// **TODO**: For some reason the device is only sending 32 bytes, even though it
+    ///           say 49 in the package! So need to figure out how to get this one
+    ///           working. Most of the code is there, the call to the function is just
+    ///           disabled. And if someone tries to use it anyway... Well, best of luck :).
     pub async fn ReadSysPara(&mut self) -> Status {
         info!("COMMAND: Read status register and basic configuration parameters");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::ReadSysPara, data).await;
     }
@@ -856,7 +1016,7 @@ impl<'l> R503<'l> {
     pub async fn TempleteNum(&mut self) -> Status {
         info!("COMMAND: Read current valid template number");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::TempleteNum, data).await;
     }
@@ -903,7 +1063,7 @@ impl<'l> R503<'l> {
             page
         );
 
-        let mut data: Vec<u8, 128> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
         let _ = data.push(page);
 
         return self.send_command(Command::ReadIndexTable, data).await;
@@ -942,7 +1102,7 @@ impl<'l> R503<'l> {
     pub async fn GenImg(&mut self) -> Status {
         info!("COMMAND: Scanning finger");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::GenImg, data).await;
     }
@@ -975,7 +1135,7 @@ impl<'l> R503<'l> {
     pub async fn UpImage(&mut self) -> Status {
         info!("COMMAND: Upload image from image buffer to upper computer");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::UpImage, data).await;
     }
@@ -1008,7 +1168,7 @@ impl<'l> R503<'l> {
     pub async fn DownImage(&mut self) -> Status {
         info!("COMMAND: Download image from upper computer to image buffer");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::DownImage, data).await;
     }
@@ -1052,7 +1212,7 @@ impl<'l> R503<'l> {
             buff
         );
 
-        let mut data: Vec<u8, 128> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
         let _ = data.push(buff);
 
         return self.send_command(Command::Img2Tz, data).await;
@@ -1088,7 +1248,7 @@ impl<'l> R503<'l> {
     pub async fn RegModel(&mut self) -> Status {
         info!("COMMAND: Generate fingerprint template");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::RegModel, data).await;
     }
@@ -1128,7 +1288,7 @@ impl<'l> R503<'l> {
             buff
         );
 
-        let mut data: Vec<u8, 128> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
         let _ = data.push(buff);
 
         return self.send_command(Command::UpChar, data).await;
@@ -1167,7 +1327,7 @@ impl<'l> R503<'l> {
             buff
         );
 
-        let mut data: Vec<u8, 128> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
         let _ = data.push(buff);
 
         return self.send_command(Command::DownChar, data).await;
@@ -1212,7 +1372,7 @@ impl<'l> R503<'l> {
             buff, page
         );
 
-        let mut data: Vec<u8, 128> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
         let _ = data.push(buff);
 
         let split: [u8; 2] = page.to_be_bytes();
@@ -1258,7 +1418,7 @@ impl<'l> R503<'l> {
             buff, page
         );
 
-        let mut data: Vec<u8, 128> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
         let _ = data.push(buff);
 
         let split: [u8; 2] = page.to_be_bytes();
@@ -1303,7 +1463,7 @@ impl<'l> R503<'l> {
             page, n
         );
 
-        let mut data: Vec<u8, 128> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         let split_page: [u8; 2] = page.to_be_bytes();
         data.extend(split_page.iter().map(|&i| i));
@@ -1342,7 +1502,7 @@ impl<'l> R503<'l> {
     pub async fn Empty(&mut self) -> Status {
         info!("COMMAND: Delete all templates in flash");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::Empty, data).await;
     }
@@ -1378,7 +1538,7 @@ impl<'l> R503<'l> {
     pub async fn Match(&mut self) -> Status {
         info!("COMMAND: Match template");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::Match, data).await;
     }
@@ -1426,7 +1586,7 @@ impl<'l> R503<'l> {
         info!("COMMAND: Search fingerpringt library for template: {=u8:#04x}H/{=u16:#06x}H/{=u16:#06x}H",
         buff, start, page);
 
-        let mut data: Vec<u8, 128> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
         let _ = data.push(buff);
 
         let split_start: [u8; 2] = start.to_be_bytes();
@@ -1478,7 +1638,7 @@ impl<'l> R503<'l> {
     pub async fn GetImageEx(&mut self) -> Status {
         info!("COMMAND: Scan finger, record image and store it buffer");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::GetImageEx, data).await;
     }
@@ -1510,7 +1670,7 @@ impl<'l> R503<'l> {
     pub async fn Cancel(&mut self) -> Status {
         info!("COMMAND: Cancel instruction");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::Cancel, data).await;
     }
@@ -1545,7 +1705,7 @@ impl<'l> R503<'l> {
     pub async fn HandShake(&mut self) -> Status {
         info!("COMMAND: Handshake");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::HandShake, data).await;
     }
@@ -1577,7 +1737,7 @@ impl<'l> R503<'l> {
     pub async fn CheckSensor(&mut self) -> Status {
         info!("COMMAND: Checking sensor");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::CheckSensor, data).await;
     }
@@ -1614,7 +1774,7 @@ impl<'l> R503<'l> {
     pub async fn GetAlgVer(&mut self) -> Status {
         info!("COMMAND: Get algorithm library version");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::GetAlgVer, data).await;
     }
@@ -1651,7 +1811,7 @@ impl<'l> R503<'l> {
     pub async fn GetFwVer(&mut self) -> Status {
         info!("COMMAND: Get firmware version");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::GetFwVer, data).await;
     }
@@ -1681,14 +1841,24 @@ impl<'l> R503<'l> {
     /// * Package Length          2 byte         0x0031
     /// * Confirmation code       1 byte         xx                 (see above)
     /// * Data                   46 bytes
-    ///   - ProdInfo             46 bytes                           (see documentation)
+    ///   - ProdInfo             46 bytes                           (see below)
     /// * Checksum                2 bytes        Sum                (see top)
-    ///
-    /// **TODO**: Return `Status` and ProdInfo (46 bytes - `[u8, 46]`)??
+    /// # Product information
+    /// | Code             | Bytes | Meaning |
+    /// | :---             | ---:  | :---    |
+    /// | PARAM_FPM_MODEL  |   16  | Module type, ASCII |
+    /// | PARAM_BN         |    4  | Module batch number, ASCII |
+    /// | PARAM_SN         |    8  | Module serial number, ASCII |
+    /// | PARAM_HW_VER     |    2  | For the hardware version, the first byte represents the main version and the second byte represents the sub-version |
+    /// | PARAM_FPS_MODEL  |    8  | Sensor type, ASCII |
+    /// | PARAM_FPS_WIDTH  |    2  | Sensor image width |
+    /// | PARAM_FPS_HEIGHT |    2  | Sensor image height |
+    /// | PARAM_TMPL_SIZE  |    2  | Template size |
+    /// | PARAM_TMPL_TOTAL |    2  | Fingerprint database size |
     pub async fn ReadProdInfo(&mut self) -> Status {
         info!("COMMAND: Read product information");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::ReadProdInfo, data).await;
     }
@@ -1721,7 +1891,7 @@ impl<'l> R503<'l> {
     pub async fn SoftRst(&mut self) -> Status {
         info!("COMMAND: Soft reset");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::SoftRst, data).await;
     }
@@ -1781,7 +1951,7 @@ impl<'l> R503<'l> {
             ctrl as u8, speed, colour as u8, times
         );
 
-        let mut data: Vec<u8, 128> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
         let _ = data.push(ctrl as u8);
         let _ = data.push(speed);
         let _ = data.push(colour as u8);
@@ -1821,7 +1991,7 @@ impl<'l> R503<'l> {
     pub async fn GetRandomCode(&mut self) -> Status {
         info!("COMMAND: Get random code");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::GetRandomCode, data).await;
     }
@@ -1854,7 +2024,7 @@ impl<'l> R503<'l> {
     pub async fn ReadInfPage(&mut self) -> Status {
         info!("COMMAND: Read information page");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::ReadInfPage, data).await;
     }
@@ -1890,7 +2060,7 @@ impl<'l> R503<'l> {
     pub async fn WriteNotepad(&mut self, page: u8, content: &[u8; 32]) -> Status {
         info!("COMMAND: Write notepad: {=u8:#04x}H/<content>", page); // Not sure how to output a `&[u128; 2]`.
 
-        let mut data: Vec<u8, 128> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
         let _ = data.push(page);
         let _ = data.extend(content.iter().map(|&i| i));
 
@@ -1931,7 +2101,7 @@ impl<'l> R503<'l> {
     pub async fn ReadNotepad(&mut self) -> Status {
         info!("COMMAND: Read notepad");
 
-        let data: Vec<u8, 128> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
 
         return self.send_command(Command::ReadNotepad, data).await;
     }
@@ -2320,7 +2490,7 @@ impl<'l> R503<'l> {
         match self.ReadSysPara().await {
             Status::CmdExecComplete => {
                 info!("System parameters read");
-                return true;
+                // Fall through..
             }
             Status::ErrorReceivePackage => {
                 error!("Package receive: Wrapper_Setup()/ReadSysPara()");
@@ -2338,6 +2508,32 @@ impl<'l> R503<'l> {
                 return false;
             }
         }
+
+        // TODO: The device is only sending 32 bytes, even though it
+        //       say in the package that the package length is 49!
+        // match self.ReadProdInfo().await {
+        //     Status::CmdExecComplete => {
+        //         info!("Product information read");
+        //         // Fall through..
+        //     }
+        //     Status::ErrorReceivePackage => {
+        //         error!("Package receive: Wrapper_Setup()/ReadProdInfo()");
+
+        //         self.Wrapper_AuraSet_BlinkinRedMedium().await;
+        //         return false;
+        //     }
+        //     stat => {
+        //         error!(
+        //             "Unknown return code='{=u8:#04x}': Wrapper_Setup()/ReadProdInfo()",
+        //             stat as u8
+        //         );
+
+        //         self.Wrapper_AuraSet_Off().await;
+        //         return false;
+        //     }
+        // }
+
+        return true;
     }
 
     /// # Description
@@ -2356,17 +2552,10 @@ impl<'l> R503<'l> {
         self.Wrapper_AuraSet_BlinkinBlueMedium().await;
 
         info!("Place the finger on the scanner");
-        if DISABLE_RW {
-            // Give it quarter of a sec for debug output to catch up.
-            trace!("  Get fingerprint disabled by `DISABLE_RW`");
-            Timer::after_millis(250).await;
-            return true; // Fake success.
+        if self.wakeup.get_level() == Level::High {
+            self.wakeup.wait_for_low().await;
         } else {
-            if self.wakeup.get_level() == Level::High {
-                self.wakeup.wait_for_low().await;
-            } else {
-                self.wakeup.wait_for_high().await;
-            }
+            self.wakeup.wait_for_high().await;
         }
         debug!("  Finger detected");
 
