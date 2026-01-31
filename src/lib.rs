@@ -172,7 +172,7 @@ impl From<u16> for SecurityLevels {
 
 // =====
 
-struct SystemParameters {
+pub struct SystemParameters {
     status_register: u16,
     system_id: u16,
     library_size: u16,
@@ -182,7 +182,7 @@ struct SystemParameters {
     baud_rate: u16,
 }
 
-struct ProductInfo {
+pub struct ProductInfo {
     fpm_model: u128,
     batch_nr: u32,
     serial_nr: u64,
@@ -207,7 +207,7 @@ pub struct R503<'l> {
     pub templatenum: u16,
 }
 
-// Channel => DMA_CH0/DMA_CH1
+/// Instance => DMA_CH0/DMA_CH1
 impl<'l> R503<'l> {
     //! Data package format
     //! | Name    | Length  | Description
@@ -274,7 +274,7 @@ impl<'l> R503<'l> {
             address: address,
             password: password,
 
-            buffer: heapless::Vec::new(),
+            buffer: Vec::new(),
 
             params: SystemParameters {
                 status_register: 0,
@@ -338,7 +338,7 @@ impl<'l> R503<'l> {
     async fn read_reply(&mut self, command: Command) -> Vec<u8, REPLY_DATA_SIZE> {
         debug!("Reading reply");
 
-        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new(); // Return buffer.
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = Vec::new(); // Return buffer.
 
         // Read *at least* 9 bytes - just so we can get the actual length of the package.
         let mut pkg_len: u16 = 9;
@@ -700,7 +700,7 @@ impl<'l> R503<'l> {
     pub async fn VfyPwd(&mut self, pass: u32) -> Status {
         info!("COMMAND: Checking password: {=u32:#010x}H", pass);
 
-        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
         let split: [u8; 4] = pass.to_be_bytes();
         data.extend(split.iter().map(|&i| i));
 
@@ -736,7 +736,7 @@ impl<'l> R503<'l> {
     pub async fn SetPwd(&mut self, pass: u32) -> Status {
         info!("COMMAND: Setting module password: {=u32:#010x}H", pass);
 
-        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
         let split: [u8; 4] = pass.to_be_bytes();
         data.extend(split.iter().map(|&i| i));
 
@@ -779,7 +779,7 @@ impl<'l> R503<'l> {
     pub async fn SetAdder(&mut self, addr: u32) -> Status {
         info!("COMMAND: Setting module address: {=u32:#010x}", addr);
 
-        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
         let split: [u8; 4] = addr.to_be_bytes();
         data.extend(split.iter().map(|&i| i));
 
@@ -820,7 +820,7 @@ impl<'l> R503<'l> {
             param, content
         );
 
-        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
         let _ = data.push(param);
         let _ = data.push(content);
 
@@ -860,7 +860,7 @@ impl<'l> R503<'l> {
     pub async fn Control(&mut self, ctrl: u8) -> Status {
         info!("COMMAND: Control: {=u8:#04x}H", ctrl);
 
-        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
         let _ = data.push(ctrl);
 
         return self.send_command(Command::Control, data).await;
@@ -925,7 +925,7 @@ impl<'l> R503<'l> {
     pub async fn ReadSysPara(&mut self) -> Status {
         info!("COMMAND: Read status register and basic configuration parameters");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::ReadSysPara, data).await;
     }
@@ -959,7 +959,7 @@ impl<'l> R503<'l> {
     pub async fn TempleteNum(&mut self) -> Status {
         info!("COMMAND: Read current valid template number");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::TempleteNum, data).await;
     }
@@ -1006,7 +1006,7 @@ impl<'l> R503<'l> {
             page
         );
 
-        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
         let _ = data.push(page);
 
         return self.send_command(Command::ReadIndexTable, data).await;
@@ -1045,7 +1045,7 @@ impl<'l> R503<'l> {
     pub async fn GenImg(&mut self) -> Status {
         info!("COMMAND: Scanning finger");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::GenImg, data).await;
     }
@@ -1078,7 +1078,7 @@ impl<'l> R503<'l> {
     pub async fn UpImage(&mut self) -> Status {
         info!("COMMAND: Upload image from image buffer to upper computer");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::UpImage, data).await;
     }
@@ -1111,7 +1111,7 @@ impl<'l> R503<'l> {
     pub async fn DownImage(&mut self) -> Status {
         info!("COMMAND: Download image from upper computer to image buffer");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::DownImage, data).await;
     }
@@ -1155,7 +1155,7 @@ impl<'l> R503<'l> {
             buff
         );
 
-        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
         let _ = data.push(buff);
 
         return self.send_command(Command::Img2Tz, data).await;
@@ -1191,7 +1191,7 @@ impl<'l> R503<'l> {
     pub async fn RegModel(&mut self) -> Status {
         info!("COMMAND: Generate fingerprint template");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::RegModel, data).await;
     }
@@ -1231,7 +1231,7 @@ impl<'l> R503<'l> {
             buff
         );
 
-        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
         let _ = data.push(buff);
 
         return self.send_command(Command::UpChar, data).await;
@@ -1270,7 +1270,7 @@ impl<'l> R503<'l> {
             buff
         );
 
-        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
         let _ = data.push(buff);
 
         return self.send_command(Command::DownChar, data).await;
@@ -1315,7 +1315,7 @@ impl<'l> R503<'l> {
             buff, page
         );
 
-        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
         let _ = data.push(buff);
 
         let split: [u8; 2] = page.to_be_bytes();
@@ -1361,7 +1361,7 @@ impl<'l> R503<'l> {
             buff, page
         );
 
-        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
         let _ = data.push(buff);
 
         let split: [u8; 2] = page.to_be_bytes();
@@ -1406,7 +1406,7 @@ impl<'l> R503<'l> {
             page, n
         );
 
-        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         let split_page: [u8; 2] = page.to_be_bytes();
         data.extend(split_page.iter().map(|&i| i));
@@ -1445,7 +1445,7 @@ impl<'l> R503<'l> {
     pub async fn Empty(&mut self) -> Status {
         info!("COMMAND: Delete all templates in flash");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::Empty, data).await;
     }
@@ -1481,7 +1481,7 @@ impl<'l> R503<'l> {
     pub async fn Match(&mut self) -> Status {
         info!("COMMAND: Match template");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::Match, data).await;
     }
@@ -1527,7 +1527,7 @@ impl<'l> R503<'l> {
         info!("COMMAND: Search fingerpringt library for template: {=u8:#04x}H/{=u16:#06x}H/{=u16:#06x}H",
         buff, start, page);
 
-        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
         let _ = data.push(buff);
 
         let split_start: [u8; 2] = start.to_be_bytes();
@@ -1591,7 +1591,7 @@ impl<'l> R503<'l> {
     pub async fn GetImageEx(&mut self) -> Status {
         info!("COMMAND: Scan finger, record image and store it buffer");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::GetImageEx, data).await;
     }
@@ -1623,7 +1623,7 @@ impl<'l> R503<'l> {
     pub async fn Cancel(&mut self) -> Status {
         info!("COMMAND: Cancel instruction");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::Cancel, data).await;
     }
@@ -1658,7 +1658,7 @@ impl<'l> R503<'l> {
     pub async fn HandShake(&mut self) -> Status {
         info!("COMMAND: Handshake");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::HandShake, data).await;
     }
@@ -1690,7 +1690,7 @@ impl<'l> R503<'l> {
     pub async fn CheckSensor(&mut self) -> Status {
         info!("COMMAND: Checking sensor");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::CheckSensor, data).await;
     }
@@ -1727,7 +1727,7 @@ impl<'l> R503<'l> {
     pub async fn GetAlgVer(&mut self) -> Status {
         info!("COMMAND: Get algorithm library version");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::GetAlgVer, data).await;
     }
@@ -1764,7 +1764,7 @@ impl<'l> R503<'l> {
     pub async fn GetFwVer(&mut self) -> Status {
         info!("COMMAND: Get firmware version");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::GetFwVer, data).await;
     }
@@ -1811,7 +1811,7 @@ impl<'l> R503<'l> {
     pub async fn ReadProdInfo(&mut self) -> Status {
         info!("COMMAND: Read product information");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::ReadProdInfo, data).await;
     }
@@ -1844,7 +1844,7 @@ impl<'l> R503<'l> {
     pub async fn SoftRst(&mut self) -> Status {
         info!("COMMAND: Soft reset");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::SoftRst, data).await;
     }
@@ -1904,7 +1904,7 @@ impl<'l> R503<'l> {
             ctrl as u8, speed, colour as u8, times
         );
 
-        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
         let _ = data.push(ctrl as u8);
         let _ = data.push(speed);
         let _ = data.push(colour as u8);
@@ -1944,7 +1944,7 @@ impl<'l> R503<'l> {
     pub async fn GetRandomCode(&mut self) -> Status {
         info!("COMMAND: Get random code");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::GetRandomCode, data).await;
     }
@@ -1977,7 +1977,7 @@ impl<'l> R503<'l> {
     pub async fn ReadInfPage(&mut self) -> Status {
         info!("COMMAND: Read information page");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::ReadInfPage, data).await;
     }
@@ -2013,7 +2013,7 @@ impl<'l> R503<'l> {
     pub async fn WriteNotepad(&mut self, page: u8, content: &[u8; 32]) -> Status {
         info!("COMMAND: Write notepad: {=u8:#04x}H/<content>", page); // Not sure how to output a `&[u128; 2]`.
 
-        let mut data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let mut data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
         let _ = data.push(page);
         let _ = data.extend(content.iter().map(|&i| i));
 
@@ -2054,7 +2054,7 @@ impl<'l> R503<'l> {
     pub async fn ReadNotepad(&mut self) -> Status {
         info!("COMMAND: Read notepad");
 
-        let data: Vec<u8, REPLY_DATA_SIZE> = heapless::Vec::new();
+        let data: Vec<u8, REPLY_DATA_SIZE> = Vec::new();
 
         return self.send_command(Command::ReadNotepad, data).await;
     }
