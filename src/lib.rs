@@ -591,7 +591,7 @@ impl<'l> R503<'l> {
                     fps_model: u64::from_be_bytes(self.buffer[40..48].try_into().unwrap()),
                     fps_width: u16::from_be_bytes(self.buffer[48..50].try_into().unwrap()),
                     fps_height: u16::from_be_bytes(self.buffer[50..52].try_into().unwrap()),
-                    tmpl_size: u16::from_be_bytes(self.buffer[52..53].try_into().unwrap()),
+                    tmpl_size: u16::from_be_bytes(self.buffer[52..54].try_into().unwrap()),
                     tmpl_total: u16::from_be_bytes(self.buffer[54..56].try_into().unwrap()),
                 };
 
