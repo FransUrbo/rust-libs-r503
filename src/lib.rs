@@ -204,7 +204,7 @@ pub struct R503<'l> {
     buffer: Vec<u8, REPLY_DATA_SIZE>,
     pub params: SystemParameters,
     pub prodinfo: ProductInfo,
-    pub templatenum: u16
+    pub templatenum: u16,
 }
 
 // Channel => DMA_CH0/DMA_CH1
@@ -298,7 +298,7 @@ impl<'l> R503<'l> {
                 tmpl_total: 0,
             },
 
-            templatenum: 0
+            templatenum: 0,
         }
     }
 
@@ -558,7 +558,7 @@ impl<'l> R503<'l> {
                     security_level: u16::from_be_bytes(self.buffer[16..18].try_into().unwrap()),
                     device_address: u32::from_be_bytes(self.buffer[18..22].try_into().unwrap()),
                     data_size: u16::from_be_bytes(self.buffer[22..24].try_into().unwrap()),
-                    baud_rate: u16::from_be_bytes(self.buffer[24..26].try_into().unwrap())
+                    baud_rate: u16::from_be_bytes(self.buffer[24..26].try_into().unwrap()),
                 };
 
                 trace!("  System parameters:");
@@ -592,7 +592,7 @@ impl<'l> R503<'l> {
                     fps_width: u16::from_be_bytes(self.buffer[48..50].try_into().unwrap()),
                     fps_height: u16::from_be_bytes(self.buffer[50..52].try_into().unwrap()),
                     tmpl_size: u16::from_be_bytes(self.buffer[52..53].try_into().unwrap()),
-                    tmpl_total: u16::from_be_bytes(self.buffer[54..56].try_into().unwrap())
+                    tmpl_total: u16::from_be_bytes(self.buffer[54..56].try_into().unwrap()),
                 };
 
                 trace!("  Product information:");
@@ -1542,7 +1542,10 @@ impl<'l> R503<'l> {
         if res == Status::CmdExecComplete {
             let page_id = u16::from_be_bytes(self.buffer[10..12].try_into().unwrap());
             let match_score = u16::from_be_bytes(self.buffer[12..14].try_into().unwrap());
-            debug!("Search results: PageID={}; MatchScore={}", page_id, match_score);
+            debug!(
+                "Search results: PageID={}; MatchScore={}",
+                page_id, match_score
+            );
         }
 
         return res;
