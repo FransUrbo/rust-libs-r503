@@ -102,3 +102,36 @@ jobs:
             target/thumbv6m-none-eabi/${{ matrix.target == 'dev' && 'debug' || matrix.target }}/libr503.rlib.sha256
             _check-package.log
             _check-fmt.log
+
+  crate:
+    name: Build crate
+    needs: check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get -y update
+          sudo apt-get -y install build-essential libssl-dev gcc-arm-none-eabi binutils-arm-none-eabi libclang-dev clang curl git
+          echo "Fetching Rust dependencies"
+          cargo fetch
+          echo "Installing Rust binaries"
+          cargo install flip-link
+
+      - name: Add rust target for thumbv6m
+        run: rustup target add thumbv6m-none-eabi
+
+      - name: Create crate
+        run: cargo package
+
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-crate
+          path: |
+            target/package/*.crate
