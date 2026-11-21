@@ -1,12 +1,11 @@
 [package]
 name = "r503"
-version = "1.0.3"
+version = "1.0.4"
 edition = "2021"
 description = "Provide functionality to control a R503 fingerprint scanner"
 license = "GPL v3"
 authors = ["Turbo Fredriksson <turbo@bayour.com>"]
 repository = "https://github.com/FransUrbo/rust-libs-r503"
-homepage = "https://github.com/FransUrbo/drive-by-wire"
 categories = [
     "embedded",
     "no-std",
