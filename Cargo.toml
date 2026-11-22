@@ -1,6 +1,6 @@
 [package]
 name = "r503"
-version = "1.0.4"
+version = "1.0.5-pre"
 edition = "2021"
 description = "Provide functionality to control a R503 fingerprint scanner"
 license = "GPL v3"
@@ -23,7 +23,7 @@ version = "0.5.1"
 
 [dependencies.embassy-rp]
 features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040"]
-version = "0.9.0"
+version = "0.10.0"
 
 [profile.dev]
 codegen-units = 1

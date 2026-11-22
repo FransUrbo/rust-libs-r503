@@ -3,11 +3,12 @@
 
 use defmt::{debug, error, info, trace, Format};
 
-use embassy_rp::dma::Channel;
+use embassy_rp::dma::ChannelInstance;
 use embassy_rp::gpio::{AnyPin, Input, Level, Pull}; // For the wakeup.
 use embassy_rp::interrupt::typelevel::Binding;
 use embassy_rp::uart::{
-    Blocking, Config, Instance, InterruptHandler, RxPin, TxPin, Uart, UartRx, UartTx,
+    Blocking, Config, Instance, InterruptHandler as UARTInterruptHandler, RxPin, TxPin, Uart,
+    UartRx, UartTx,
 };
 use embassy_rp::Peri;
 use embassy_time::Timer;
@@ -230,13 +231,13 @@ impl<'l> R503<'l> {
     //!     = 11 bytes (plus length of data).
     //! * Checksum: Calculated on Package ID + Package Length + Data.<br>
     //! **NOTE**: Pins must be consecutive, otherwise it'll segfault!
-    pub fn new<T: Instance>(
+    pub fn new<T: Instance, C1: ChannelInstance, C2: ChannelInstance>(
         uart: Peri<'l, T>,
-        _irqs: impl Binding<<T as embassy_rp::uart::Instance>::Interrupt, InterruptHandler<T>>,
+        _irqs: impl Binding<<T as embassy_rp::uart::Instance>::Interrupt, UARTInterruptHandler<T>>,
         pin_send: Peri<'l, impl TxPin<T>>,
-        _pin_send_dma: Peri<'l, impl Channel>,
+        _pin_send_dma: Peri<'l, C1>,
         pin_receive: Peri<'l, impl RxPin<T>>,
-        _pin_receive_dma: Peri<'l, impl Channel>,
+        _pin_receive_dma: Peri<'l, C2>,
         pin_wakeup: Peri<'l, AnyPin>,
     ) -> Self {
         // Set default passwords.
